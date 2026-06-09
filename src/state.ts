@@ -13,10 +13,24 @@ import { join, dirname } from "node:path";
 import { configDir } from "./config.js";
 
 export type WorktreeStatus =
-  | "ready"
-  | "attached"
-  | "needs-resetup"
-  | "building";
+  | "ready" // fully built + set up, idle, healthy
+  | "attached" // handed out to a session
+  | "needs-resetup" // released, waiting to be reset + re-set-up
+  // transitional states (a worker is actively operating; recoverable if stale)
+  | "building" // git worktree add + setup script running
+  | "resetting" // git reset --hard + re-setup running
+  | "destroying"; // git worktree remove running
+
+/** States where a worker process is mid-operation and a crash leaves junk. */
+export const TRANSITIONAL: WorktreeStatus[] = [
+  "building",
+  "resetting",
+  "destroying",
+];
+
+export function isTransitional(status: WorktreeStatus): boolean {
+  return TRANSITIONAL.includes(status);
+}
 
 export interface Worktree {
   id: string;
@@ -28,6 +42,10 @@ export interface Worktree {
   baseCommit: string | null;
   warmedAt: number | null;
   attachedAt: number | null;
+  /** PID of the worker performing a transitional operation, if any. */
+  workerPid: number | null;
+  /** Epoch seconds when the current transitional state was entered. */
+  enteredAt: number | null;
 }
 
 export interface State {

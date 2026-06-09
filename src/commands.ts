@@ -5,19 +5,17 @@ import {
   worktreesForRepo,
   findById,
   findByPath,
-  removeWorktree,
   type Worktree,
 } from "./state.js";
 import {
   buildWorktree,
-  resetupWorktree,
   checkoutBranch,
   detach,
-  removeWorktreeDir,
   pruneSource,
   worktreeExistsOnDisk,
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
+import { reconcile } from "./reconcile.js";
 import { spawnDetached, humanAge } from "./util.js";
 import { now } from "./time.js";
 
@@ -47,6 +45,9 @@ export async function cmdUp(
 ): Promise<void> {
   const config = loadConfig();
   const repo = getRepo(config, repoName);
+
+  // Clean up any crashed/stale worktrees before handing one out.
+  await reconcile(config);
 
   // Try to claim a ready worktree under the lock.
   let claimed = await withState((state): Worktree | null => {
@@ -81,6 +82,8 @@ export async function cmdUp(
         baseCommit: built.baseCommit,
         warmedAt: now(),
         attachedAt: now(),
+        workerPid: null,
+        enteredAt: null,
       };
       state.worktrees.push(wt);
       return { ...wt };
@@ -129,8 +132,6 @@ export async function cmdDown(
   idOrNothing: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
-  const config = loadConfig();
-
   const target = await withState((state): Worktree | null => {
     let wt: Worktree | undefined;
     if (idOrNothing) {
@@ -144,12 +145,11 @@ export async function cmdDown(
         );
       }
     }
-    if (wt.status !== "attached") {
-      // Allow releasing anyway, but note it.
-    }
     wt.status = "needs-resetup";
     wt.owner = null;
     wt.attachedAt = null;
+    wt.workerPid = null;
+    wt.enteredAt = null;
     return { ...wt };
   });
 
@@ -260,16 +260,9 @@ export async function cmdPrewarm(
 
 export async function cmdGc(opts: CmdOpts): Promise<void> {
   const config = loadConfig();
-  const removed: string[] = [];
-  await withState((state) => {
-    for (const w of [...state.worktrees]) {
-      if (w.id.startsWith("pending-")) continue;
-      if (w.path && !worktreeExistsOnDisk(w)) {
-        removeWorktree(state, w.id);
-        removed.push(w.id);
-      }
-    }
-  });
+  // reconcile() handles both stale transitional (crashed) records and records
+  // whose worktree dir vanished, cleaning up state + disk together.
+  const removed = await reconcile(config);
   for (const [, repo] of Object.entries(config.repos)) {
     pruneSource(repo);
   }

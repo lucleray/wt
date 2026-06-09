@@ -10,8 +10,8 @@ import {
   buildWorktree,
   resetupWorktree,
   removeWorktreeDir,
-  worktreeExistsOnDisk,
 } from "./worktree.js";
+import { reconcile } from "./reconcile.js";
 import { now } from "./time.js";
 
 /**
@@ -24,20 +24,26 @@ export async function topupRepo(repoName: string): Promise<void> {
   const config = loadConfig();
   const repo = getRepo(config, repoName);
 
+  // Clean up anything left over from a crashed run before topping up.
+  await reconcile(config);
+
   for (;;) {
     // Decide the next action under the lock, then do slow work outside it.
     const action = await withState((state): TopupAction => {
       const wts = worktreesForRepo(state, repoName);
       const ready = wts.filter((w) => w.status === "ready").length;
-      const building = wts.filter((w) => w.status === "building").length;
-      const projected = ready + building;
+      // Count in-flight builds/resets toward the target so we don't overshoot.
+      const inflight = wts.filter(
+        (w) => w.status === "building" || w.status === "resetting",
+      ).length;
+      const projected = ready + inflight;
 
       // Destroy excess released worktrees beyond capacity.
       const releasable = wts.filter((w) => w.status === "needs-resetup");
       if (projected >= repo.poolSize && releasable.length > 0) {
         const victim = releasable[0];
-        victim.status = "building"; // claim so nobody else touches it
-        return { kind: "destroy", wt: victim };
+        claim(victim, "destroying");
+        return { kind: "destroy", wt: { ...victim } };
       }
 
       if (projected >= repo.poolSize) return { kind: "done" };
@@ -45,8 +51,8 @@ export async function topupRepo(repoName: string): Promise<void> {
       // Prefer reusing a released worktree over building fresh.
       const reuse = releasable[0];
       if (reuse) {
-        reuse.status = "building";
-        return { kind: "resetup", wt: reuse };
+        claim(reuse, "resetting");
+        return { kind: "resetup", wt: { ...reuse } };
       }
 
       // Build a brand new one. Reserve a placeholder so concurrent top-ups
@@ -61,6 +67,8 @@ export async function topupRepo(repoName: string): Promise<void> {
         baseCommit: null,
         warmedAt: null,
         attachedAt: null,
+        workerPid: process.pid,
+        enteredAt: now(),
       };
       state.worktrees.push(placeholder);
       return { kind: "build", placeholderId: placeholder.id };
@@ -86,11 +94,17 @@ export async function topupRepo(repoName: string): Promise<void> {
             w.baseCommit = baseCommit;
             w.warmedAt = now();
             w.attachedAt = null;
+            w.workerPid = null;
+            w.enteredAt = null;
           }
         });
-      } catch (err) {
+      } catch {
         // Reset failed; tear it down so it doesn't get stuck.
-        removeWorktreeDir(repo, action.wt);
+        try {
+          removeWorktreeDir(repo, action.wt);
+        } catch {
+          /* best effort */
+        }
         await withState((state) => removeWorktree(state, action.wt.id));
       }
       continue;
@@ -107,6 +121,8 @@ export async function topupRepo(repoName: string): Promise<void> {
             w.status = "ready";
             w.baseCommit = built.baseCommit;
             w.warmedAt = now();
+            w.workerPid = null;
+            w.enteredAt = null;
           }
         });
       } catch (err) {
@@ -118,15 +134,13 @@ export async function topupRepo(repoName: string): Promise<void> {
       continue;
     }
   }
+}
 
-  // Opportunistic cleanup of records whose dirs vanished.
-  await withState((state) => {
-    for (const w of worktreesForRepo(state, repoName)) {
-      if (w.path && w.status !== "building" && !worktreeExistsOnDisk(w)) {
-        removeWorktree(state, w.id);
-      }
-    }
-  });
+/** Mark a worktree as claimed for a transitional operation by this worker. */
+function claim(wt: Worktree, status: Worktree["status"]): void {
+  wt.status = status;
+  wt.workerPid = process.pid;
+  wt.enteredAt = now();
 }
 
 type TopupAction =

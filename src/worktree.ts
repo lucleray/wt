@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { run, runOrThrow, runShell, shortId } from "./util.js";
 import type { Config, RepoConfig } from "./config.js";
@@ -100,7 +100,19 @@ export function detach(wt: Worktree): void {
 
 /** Remove a worktree from disk + git's registry. */
 export function removeWorktreeDir(repo: RepoConfig, wt: Worktree): void {
-  run("git", ["-C", repo.source, "worktree", "remove", "--force", wt.path]);
+  if (wt.path) {
+    // Try the clean git path first (handles registered worktrees).
+    run("git", ["-C", repo.source, "worktree", "remove", "--force", wt.path]);
+    // If the dir still exists (e.g. a half-built worktree git never registered,
+    // or removal failed), force-delete it from disk so it can't be reused.
+    if (existsSync(wt.path)) {
+      try {
+        rmSync(wt.path, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+    }
+  }
   run("git", ["-C", repo.source, "worktree", "prune"]);
 }
 
@@ -110,4 +122,50 @@ export function pruneSource(repo: RepoConfig): void {
 
 export function worktreeExistsOnDisk(wt: Worktree): boolean {
   return existsSync(wt.path);
+}
+
+/**
+ * List the absolute paths of worktrees git knows about for a source repo,
+ * excluding the main worktree itself.
+ */
+export function listGitWorktrees(repo: RepoConfig): string[] {
+  const res = run("git", [
+    "-C",
+    repo.source,
+    "worktree",
+    "list",
+    "--porcelain",
+  ]);
+  if (res.code !== 0) return [];
+  const paths: string[] = [];
+  for (const line of res.stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      const p = line.slice("worktree ".length).trim();
+      paths.push(p);
+    }
+  }
+  // First entry is the main worktree (the source repo itself); drop it.
+  const mainReal = realpathSafe(repo.source);
+  return paths.filter((p) => realpathSafe(p) !== mainReal);
+}
+
+/** Force-remove a worktree by path (orphan with no state record). */
+export function removeOrphanPath(repo: RepoConfig, path: string): void {
+  run("git", ["-C", repo.source, "worktree", "remove", "--force", path]);
+  if (existsSync(path)) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+  run("git", ["-C", repo.source, "worktree", "prune"]);
+}
+
+function realpathSafe(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }
