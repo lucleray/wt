@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { run, runOrThrow, runShell, shortId } from "./util.js";
+import { withNamedLockSync } from "./state.js";
 import type { Config, RepoConfig } from "./config.js";
 import type { Worktree } from "./state.js";
 
@@ -49,17 +50,21 @@ export function buildWorktree(
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `wt-${id}`);
 
-  runOrThrow("git", [
-    "-C",
-    repo.source,
-    "worktree",
-    "add",
-    "--detach",
-    path,
-    ref,
-  ]);
-
-  const baseCommit = resolveCommit(repo, ref);
+  // Serialize `git worktree add` per source repo: concurrent adds race on the
+  // shared .git lock. The setup script runs outside the lock so installs can
+  // still proceed in parallel.
+  const baseCommit = withNamedLockSync(`git-${repoName}`, () => {
+    runOrThrow("git", [
+      "-C",
+      repo.source,
+      "worktree",
+      "add",
+      "--detach",
+      path,
+      ref,
+    ]);
+    return resolveCommit(repo, ref);
+  });
   runSetup(repo, path);
 
   return { id, path, baseCommit };
@@ -69,7 +74,9 @@ export function buildWorktree(
 export function resetupWorktree(repo: RepoConfig, wt: Worktree): string {
   fetchSource(repo);
   const ref = baseRef(repo);
-  runOrThrow("git", ["-C", wt.path, "fetch", "origin", "--quiet"]);
+  // Fetch in the worktree is best-effort: repos without an `origin` remote
+  // (or while offline) should still reset to the local base ref.
+  run("git", ["-C", wt.path, "fetch", "origin", "--quiet"]);
   runOrThrow("git", ["-C", wt.path, "checkout", "--detach", ref]);
   runOrThrow("git", ["-C", wt.path, "reset", "--hard", ref]);
   // Clean untracked files but preserve ignored ones (node_modules etc).
@@ -100,20 +107,22 @@ export function detach(wt: Worktree): void {
 
 /** Remove a worktree from disk + git's registry. */
 export function removeWorktreeDir(repo: RepoConfig, wt: Worktree): void {
-  if (wt.path) {
-    // Try the clean git path first (handles registered worktrees).
-    run("git", ["-C", repo.source, "worktree", "remove", "--force", wt.path]);
-    // If the dir still exists (e.g. a half-built worktree git never registered,
-    // or removal failed), force-delete it from disk so it can't be reused.
-    if (existsSync(wt.path)) {
-      try {
-        rmSync(wt.path, { recursive: true, force: true });
-      } catch {
-        /* best effort */
+  withNamedLockSync(`git-${wt.repo}`, () => {
+    if (wt.path) {
+      // Try the clean git path first (handles registered worktrees).
+      run("git", ["-C", repo.source, "worktree", "remove", "--force", wt.path]);
+      // If the dir still exists (e.g. a half-built worktree git never
+      // registered, or removal failed), force-delete it from disk.
+      if (existsSync(wt.path)) {
+        try {
+          rmSync(wt.path, { recursive: true, force: true });
+        } catch {
+          /* best effort */
+        }
       }
     }
-  }
-  run("git", ["-C", repo.source, "worktree", "prune"]);
+    run("git", ["-C", repo.source, "worktree", "prune"]);
+  });
 }
 
 export function pruneSource(repo: RepoConfig): void {

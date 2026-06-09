@@ -7,7 +7,10 @@ export interface RepoConfig {
   source: string;
   baseBranch: string;
   setup?: string;
-  poolSize: number;
+  /** Warm floor: always keep at least this many `ready` worktrees. */
+  minPool: number;
+  /** Total ceiling: destroy released worktrees only when total exceeds this. */
+  maxPool: number;
 }
 
 export interface Config {
@@ -19,7 +22,10 @@ interface RawRepoConfig {
   source?: string;
   baseBranch?: string;
   setup?: string;
+  /** Backwards-compatible alias: sets both minPool and maxPool. */
   poolSize?: number;
+  minPool?: number;
+  maxPool?: number;
 }
 
 interface RawConfig {
@@ -54,11 +60,16 @@ export function loadConfig(): Config {
     if (!r.source) {
       throw new Error(`repo "${name}" is missing required field "source"`);
     }
+    // poolSize is a back-compat alias that sets both bounds.
+    const min = r.minPool ?? r.poolSize ?? 1;
+    let max = r.maxPool ?? r.poolSize ?? min;
+    if (max < min) max = min; // max can never be below min
     repos[name] = {
       source: expandPath(r.source),
       baseBranch: r.baseBranch ?? "main",
       setup: r.setup,
-      poolSize: r.poolSize ?? 1,
+      minPool: min,
+      maxPool: max,
     };
   }
   return { worktreeRoot, repos };

@@ -12,7 +12,7 @@ import {
 } from "./worktree.js";
 import { loadConfig, type Config } from "./config.js";
 import { now } from "./time.js";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -28,6 +28,20 @@ function realish(p: string): string {
     return realpathSync(p);
   } catch {
     return p;
+  }
+}
+
+/** Grace period (seconds) protecting just-created worktrees from the sweep. */
+const ORPHAN_GRACE_SECONDS = 5 * 60;
+
+function isRecent(path: string): boolean {
+  try {
+    const st = statSync(path);
+    const created = st.birthtimeMs || st.ctimeMs;
+    const ageMs = Date.now() - created;
+    return ageMs < ORPHAN_GRACE_SECONDS * 1000;
+  } catch {
+    return false;
   }
 }
 
@@ -141,6 +155,10 @@ async function sweepOrphans(cfg: Config): Promise<string[]> {
       // Only manage paths inside this repo's pool dir.
       if (real !== poolDir && !real.startsWith(poolDir + "/")) continue;
       if (known.has(real)) continue;
+      // Grace period: a cold-build `up` creates + registers the worktree before
+      // it records state, so a freshly-created dir may be a build in progress
+      // (not yet in state). Don't sweep recently-created worktrees.
+      if (isRecent(gitPath)) continue;
       try {
         removeOrphanPath(repo, gitPath);
         removed.push(`orphan:${gitPath.split("/").pop()}`);

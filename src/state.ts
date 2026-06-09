@@ -64,6 +64,86 @@ function emptyState(): State {
   return { worktrees: [] };
 }
 
+/**
+ * Acquire a named lock, blocking (with retry) until available. Used to
+ * serialize git operations on a shared source repo across processes.
+ */
+export function withNamedLockSync<T>(name: string, fn: () => T): T {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const release = tryNamedLock(name);
+    if (release) {
+      try {
+        return fn();
+      } finally {
+        release();
+      }
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out acquiring lock "${name}"`);
+    }
+    // Busy-wait briefly (sync context). Small sleep via Atomics.
+    sleepSync(50);
+  }
+}
+
+function sleepSync(ms: number): void {
+  const sab = new SharedArrayBuffer(4);
+  const ia = new Int32Array(sab);
+  Atomics.wait(ia, 0, 0, ms);
+}
+
+/**
+ * Try to acquire a named non-blocking lock (e.g. per-repo top-up serialization).
+ * Returns a release function if acquired, or null if already held by a live
+ * process. Steals stale locks whose holder pid is dead.
+ */
+export function tryNamedLock(name: string): (() => void) | null {
+  const lock = join(configDir(), `${name}.lock`);
+  mkdirSync(dirname(lock), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = openSync(lock, "wx");
+      writeFileSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => {
+        try {
+          unlinkSync(lock);
+        } catch {
+          /* ignore */
+        }
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      // Held — steal if the holder is dead, else give up.
+      let holderDead = true;
+      try {
+        const pid = parseInt(readFileSync(lock, "utf8").trim(), 10);
+        if (Number.isFinite(pid)) {
+          try {
+            process.kill(pid, 0);
+            holderDead = false;
+          } catch {
+            holderDead = true;
+          }
+        }
+      } catch {
+        holderDead = true;
+      }
+      if (holderDead) {
+        try {
+          unlinkSync(lock);
+        } catch {
+          /* ignore */
+        }
+        continue; // retry once
+      }
+      return null; // live holder
+    }
+  }
+  return null;
+}
+
 export function readState(): State {
   const p = statePath();
   if (!existsSync(p)) return emptyState();
@@ -77,7 +157,9 @@ export function readState(): State {
 function writeState(state: State): void {
   const p = statePath();
   mkdirSync(dirname(p), { recursive: true });
-  const tmp = p + ".tmp";
+  // Unique temp name per writer so concurrent writers never clobber or race on
+  // the same temp file (rename is atomic; the last writer under the lock wins).
+  const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   writeFileSync(tmp, JSON.stringify(state, null, 2));
   renameSync(tmp, p);
 }

@@ -23,22 +23,47 @@ path with `WT_CONFIG`.
       // Runs with cwd = the worktree directory.
       "setup": "pnpm install",
 
-      // How many ready worktrees to keep warm. Default: 1.
-      "poolSize": 2
+      // Warm floor: always keep at least this many `ready` worktrees. Default 1.
+      "minPool": 1,
+
+      // Total ceiling: released worktrees are kept warm (reused) until the total
+      // would exceed this; only then are they destroyed. Default = minPool.
+      "maxPool": 5
     }
   }
 }
 ```
 
+## Pool sizing: minPool / maxPool
+
+Two bounds control the pool:
+
+- **`minPool`** — the warm floor. `wt` always tops up until at least this many
+  worktrees are `ready`.
+- **`maxPool`** — the total ceiling. When you release a worktree (`wt down`),
+  it is **reset and kept warm** (reused) rather than destroyed, as long as the
+  total worktree count stays within `maxPool`. Only worktrees beyond `maxPool`
+  are destroyed.
+
+This lets you avoid churn: with `minPool: 1, maxPool: 5` you always have at
+least one warm worktree, and bouncing `up`/`down` reuses worktrees (keeping
+their installed deps) until you have 5, instead of deleting and rebuilding each
+time.
+
+**`poolSize`** is a backwards-compatible alias: setting it is equivalent to
+`minPool = maxPool = poolSize` (a fixed-size pool).
+
 ## Fields
 
-| Field                 | Required | Default        | Description                                              |
-| --------------------- | -------- | -------------- | -------------------------------------------------------- |
-| `worktreeRoot`        | no       | `~/w/worktrees`| Root dir for all pooled worktrees.                       |
-| `repos.<name>.source` | yes      | —              | Local git repo worktrees are created from.               |
-| `repos.<name>.baseBranch` | no   | `main`         | Branch to warm worktrees at.                             |
-| `repos.<name>.setup`  | no       | (none)         | Shell command run in each worktree after checkout.       |
-| `repos.<name>.poolSize` | no     | `1`            | Number of ready worktrees to keep warm.                  |
+| Field                     | Required | Default         | Description                                            |
+| ------------------------- | -------- | --------------- | ------------------------------------------------------ |
+| `worktreeRoot`            | no       | `~/w/worktrees` | Root dir for all pooled worktrees.                     |
+| `repos.<name>.source`     | yes      | —               | Local git repo worktrees are created from.             |
+| `repos.<name>.baseBranch` | no       | `main`          | Branch to warm worktrees at.                           |
+| `repos.<name>.setup`      | no       | (none)          | Shell command run in each worktree after checkout.     |
+| `repos.<name>.minPool`    | no       | `1`             | Warm floor: keep at least this many `ready`.           |
+| `repos.<name>.maxPool`    | no       | `minPool`       | Total ceiling before released worktrees are destroyed. |
+| `repos.<name>.poolSize`   | no       | —               | Alias: sets both `minPool` and `maxPool`.              |
 
 ## Path expansion
 

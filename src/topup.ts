@@ -3,6 +3,7 @@ import {
   withState,
   worktreesForRepo,
   removeWorktree,
+  tryNamedLock,
   type State,
   type Worktree,
 } from "./state.js";
@@ -15,7 +16,9 @@ import { reconcile } from "./reconcile.js";
 import { now } from "./time.js";
 
 /**
- * Bring a repo's `ready` pool up to poolSize. Re-sets-up released worktrees
+ * Bring a repo's `ready` pool up to minPool, and scale down (destroy released
+ * worktrees) only when the total footprint exceeds maxPool. Re-sets-up released
+ * worktrees
  * first (cheap, keeps node_modules), then builds new ones as needed. Runs
  * synchronously; invoked in the foreground (prewarm) or in a detached bg
  * process (after up/down).
@@ -24,6 +27,25 @@ export async function topupRepo(repoName: string): Promise<void> {
   const config = loadConfig();
   const repo = getRepo(config, repoName);
 
+  // Serialize top-ups per repo. If one is already running, it will observe the
+  // latest state on its next loop iteration, so we can safely no-op here. This
+  // prevents concurrent top-ups from racing on git operations in the shared
+  // source repo.
+  const release = tryNamedLock(`topup-${repoName}`);
+  if (!release) return;
+
+  try {
+    await topupRepoLocked(config, repo, repoName);
+  } finally {
+    release();
+  }
+}
+
+async function topupRepoLocked(
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof getRepo>,
+  repoName: string,
+): Promise<void> {
   // Clean up anything left over from a crashed run before topping up.
   await reconcile(config);
 
@@ -32,46 +54,62 @@ export async function topupRepo(repoName: string): Promise<void> {
     const action = await withState((state): TopupAction => {
       const wts = worktreesForRepo(state, repoName);
       const ready = wts.filter((w) => w.status === "ready").length;
-      // Count in-flight builds/resets toward the target so we don't overshoot.
+      // Count in-flight builds/resets toward the warm target so we don't
+      // overshoot when several top-ups run at once.
       const inflight = wts.filter(
         (w) => w.status === "building" || w.status === "resetting",
       ).length;
-      const projected = ready + inflight;
+      // Total footprint = everything that occupies a worktree on disk.
+      // (destroying records are on their way out, so they don't count.)
+      const total = wts.filter((w) => w.status !== "destroying").length;
 
-      // Destroy excess released worktrees beyond capacity.
+      const warm = ready + inflight; // ready or about-to-be-ready
       const releasable = wts.filter((w) => w.status === "needs-resetup");
-      if (projected >= repo.poolSize && releasable.length > 0) {
+
+      // 1. Scale down: if we're over the max ceiling, destroy a released one.
+      if (total > repo.maxPool && releasable.length > 0) {
         const victim = releasable[0];
         claim(victim, "destroying");
         return { kind: "destroy", wt: { ...victim } };
       }
 
-      if (projected >= repo.poolSize) return { kind: "done" };
+      // 2. Refill warm pool toward minPool. Prefer reusing a released worktree
+      //    (cheap reset, keeps node_modules) over building a fresh one.
+      if (warm < repo.minPool) {
+        const reuse = releasable[0];
+        if (reuse) {
+          claim(reuse, "resetting");
+          return { kind: "resetup", wt: { ...reuse } };
+        }
+        // Only build new if doing so won't blow past the max ceiling.
+        if (total < repo.maxPool) {
+          const placeholder: Worktree = {
+            id: `pending-${Math.random().toString(36).slice(2, 6)}`,
+            repo: repoName,
+            path: "",
+            status: "building",
+            branch: null,
+            owner: null,
+            baseCommit: null,
+            warmedAt: null,
+            attachedAt: null,
+            workerPid: process.pid,
+            enteredAt: now(),
+          };
+          state.worktrees.push(placeholder);
+          return { kind: "build", placeholderId: placeholder.id };
+        }
+      }
 
-      // Prefer reusing a released worktree over building fresh.
+      // 3. Recycle any leftover released worktrees back to ready as long as we
+      //    have headroom under maxPool — keeps them warm instead of churning.
       const reuse = releasable[0];
-      if (reuse) {
+      if (reuse && total <= repo.maxPool) {
         claim(reuse, "resetting");
         return { kind: "resetup", wt: { ...reuse } };
       }
 
-      // Build a brand new one. Reserve a placeholder so concurrent top-ups
-      // don't overshoot.
-      const placeholder: Worktree = {
-        id: `pending-${Math.random().toString(36).slice(2, 6)}`,
-        repo: repoName,
-        path: "",
-        status: "building",
-        branch: null,
-        owner: null,
-        baseCommit: null,
-        warmedAt: null,
-        attachedAt: null,
-        workerPid: process.pid,
-        enteredAt: now(),
-      };
-      state.worktrees.push(placeholder);
-      return { kind: "build", placeholderId: placeholder.id };
+      return { kind: "done" };
     });
 
     if (action.kind === "done") break;

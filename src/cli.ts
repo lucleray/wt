@@ -26,7 +26,7 @@ Usage:
 Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
-  -n <N>        (prewarm) build hint (currently fills to poolSize)
+  -n <N>        (prewarm) build hint (currently fills to minPool)
   -h, --help    Show help
   -v, --version Show version
 `;

@@ -214,7 +214,8 @@ export async function cmdStatus(opts: CmdOpts): Promise<void> {
       building: state.worktrees.filter(
         (w) => w.repo === name && w.status === "building",
       ).length,
-      target: repo.poolSize,
+      min: repo.minPool,
+      max: repo.maxPool,
     };
   });
 
@@ -222,7 +223,15 @@ export async function cmdStatus(opts: CmdOpts): Promise<void> {
     out(true, report, "");
     return;
   }
-  const header = ["REPO", "READY", "ATTACHED", "PENDING", "BUILDING", "TARGET"];
+  const header = [
+    "REPO",
+    "READY",
+    "ATTACHED",
+    "PENDING",
+    "BUILDING",
+    "MIN",
+    "MAX",
+  ];
   printTable(
     header,
     report.map((r) => [
@@ -231,7 +240,8 @@ export async function cmdStatus(opts: CmdOpts): Promise<void> {
       String(r.attached),
       String(r.needsResetup),
       String(r.building),
-      String(r.target),
+      String(r.min),
+      String(r.max),
     ]),
   );
 }
@@ -293,7 +303,7 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
     const repo = config.repos[v.name];
     const mark = v.ok ? "ok" : "PROBLEM";
     process.stdout.write(
-      `[${mark}] ${v.name}\n  source: ${repo.source}\n  base: ${repo.baseBranch}  pool: ${repo.poolSize}  setup: ${repo.setup ?? "(none)"}\n`,
+      `[${mark}] ${v.name}\n  source: ${repo.source}\n  base: ${repo.baseBranch}  pool: ${repo.minPool}-${repo.maxPool}  setup: ${repo.setup ?? "(none)"}\n`,
     );
     for (const p of v.problems) process.stdout.write(`  - ${p}\n`);
   }

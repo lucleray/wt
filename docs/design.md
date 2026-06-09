@@ -73,14 +73,25 @@ If `wt up` finds no `ready` worktree, it **builds one on demand** (blocking)
 and warns that this is a cold start, then triggers a background top-up. So `up`
 never fails — it is just occasionally slow.
 
-### Reuse on release
+### Reuse on release (minPool / maxPool)
 
 `wt down` is **instant**: it detaches HEAD and marks the worktree
 `needs-resetup` rather than re-running setup synchronously. The actual
 `git reset --hard origin/<base>` + setup happens during the next background
 top-up. This keeps the warm `node_modules` and avoids blocking the user on
-`down`. If the pool is already at `poolSize`, the released worktree is destroyed
-instead.
+`down`.
+
+The top-up balances the pool against two bounds:
+
+- It refills toward **`minPool`** (the warm floor) — reusing released worktrees
+  first (cheap reset, keeps deps), then building new ones if needed.
+- A released worktree is **kept and reused** as long as the total worktree count
+  is within **`maxPool`**. Only when the total would exceed `maxPool` is a
+  released worktree destroyed.
+
+So with `minPool: 1, maxPool: 5`, bouncing `up`/`down` recycles warm worktrees
+up to 5 before any are torn down — avoiding the churn of deleting and
+reinstalling on every release.
 
 ### Freshness
 
@@ -93,8 +104,15 @@ automatic reset on hand-out (that would make `up` slow and defeat the point).
 
 There is **no daemon** in v1. Top-up is triggered lazily by `up` and `down`:
 after handing out or releasing a worktree, `wt` spawns a detached background
-process (`wt __topup <repo>`) that brings the `ready` count back to `poolSize`,
-building new worktrees or re-setting-up released ones as needed.
+process (`wt __topup <repo>`) that rebalances the pool against `minPool` /
+`maxPool`, building new worktrees or re-setting-up released ones as needed.
+
+Top-ups are **serialized per repo** with a non-blocking lock (`topup-<repo>`):
+if one is already running, a newly triggered one no-ops, since the running
+top-up re-reads state each iteration and will pick up the latest changes.
+Git operations that mutate the shared source repo's worktree registry
+(`worktree add` / `remove` / `prune`) are serialized with a separate blocking
+lock (`git-<repo>`) so concurrent builds don't race.
 
 ## State
 
