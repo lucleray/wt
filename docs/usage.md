@@ -49,12 +49,12 @@ reuse. If the pool is over capacity, the worktree is destroyed instead.
 ## `wt list [<repo>]` (alias: `wt ls`)
 
 List all worktrees and their status, optionally filtered to one repo. Includes
-in-flight builds (shown as `building`). Status values:
+in-flight builds (shown as `setting up`). Status values:
 
 - `ready` — warm, set up, available to hand out
 - `in use` — attached to a session
 - `recycling` — released, waiting to be reset + re-set-up
-- `building` — being checked out / set up right now
+- `setting up` — being checked out / set up right now
 - `removing` — being torn down
 
 ```sh

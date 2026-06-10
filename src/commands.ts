@@ -184,9 +184,9 @@ function statusLabel(status: string): string {
     case "needs-resetup":
       return "recycling";
     case "building":
-      return "building";
+      return "setting up";
     case "resetting":
-      return "building";
+      return "setting up";
     case "destroying":
       return "removing";
     default:
