@@ -91,9 +91,8 @@ in the worktree, so whatever those need must be available too.
 | ------------------------ | ----------------------------------------------------------------- |
 | `wt up <repo> [branch]`  | Get a ready worktree (instant from pool). Optionally create a branch. |
 | `wt down [<id>]`         | Release a worktree back to the pool (defaults to the cwd's).      |
-| `wt list [<repo>]`       | List worktrees and their status.                                  |
-| `wt status`              | Show pool health per repo.                                        |
-| `wt config`              | Print and validate the config.                                    |
+| `wt list [<repo>]`       | List all worktrees and their status (alias: `wt ls`).             |
+| `wt config`              | Print and validate the config (incl. pool bounds).                |
 
 ### Advanced
 

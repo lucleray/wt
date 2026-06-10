@@ -4,7 +4,6 @@ import {
   cmdUp,
   cmdDown,
   cmdList,
-  cmdStatus,
   cmdPrewarm,
   cmdGc,
   cmdConfig,
@@ -18,8 +17,7 @@ const HELP = `wt — agent-first git worktree pool manager
 Usage:
   wt up <repo> [branch]   Get a ready worktree (instant from pool)
   wt down [<id>]          Release a worktree back to the pool
-  wt list [<repo>]        List worktrees and their status
-  wt status               Show pool health per repo
+  wt list [<repo>]        List all worktrees and their status (alias: ls)
   wt config               Print and validate config
 
 Advanced:
@@ -79,9 +77,6 @@ async function main(): Promise<void> {
     case "list":
     case "ls":
       await cmdList(positionals[0], opts);
-      break;
-    case "status":
-      await cmdStatus(opts);
       break;
     case "prewarm":
       requireArg(positionals[0], "wt prewarm <repo>");

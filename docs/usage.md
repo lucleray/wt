@@ -46,24 +46,25 @@ wt down ab12         # release by id
 happens during the next background top-up. Your `node_modules` is preserved for
 reuse. If the pool is over capacity, the worktree is destroyed instead.
 
-## `wt list [<repo>]`
+## `wt list [<repo>]` (alias: `wt ls`)
 
-List worktrees and their status.
+List all worktrees and their status, optionally filtered to one repo. Includes
+in-flight builds (shown as `building`). Status values:
+
+- `ready` — warm, set up, available to hand out
+- `in use` — attached to a session
+- `recycling` — released, waiting to be reset + re-set-up
+- `building` — being checked out / set up right now
+- `removing` — being torn down
 
 ```sh
 wt list
 wt list front
+wt ls
 wt list --json
 ```
 
-## `wt status`
-
-Show pool health per repo: ready / attached / needs-resetup / target counts.
-
-```sh
-wt status
-wt status --json
-```
+Pool bounds (`minPool` / `maxPool`) are shown by `wt config`.
 
 ## `wt prewarm <repo>`
 

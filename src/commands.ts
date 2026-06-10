@@ -174,81 +174,62 @@ export async function cmdDown(
 
 // ---- list ----
 
+/** Human-friendly label for a worktree status. */
+function statusLabel(status: string): string {
+  switch (status) {
+    case "ready":
+      return "ready";
+    case "attached":
+      return "in use";
+    case "needs-resetup":
+      return "recycling";
+    case "building":
+      return "building";
+    case "resetting":
+      return "building";
+    case "destroying":
+      return "removing";
+    default:
+      return status;
+  }
+}
+
 export async function cmdList(
   repoName: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
   const state = readState();
-  let wts = state.worktrees.filter((w) => !w.id.startsWith("pending-"));
+  // Include everything, even in-flight builds (pending placeholders).
+  let wts = [...state.worktrees];
   if (repoName) wts = wts.filter((w) => w.repo === repoName);
+
+  // Sort: group by repo, then ready first, then by age.
+  const order = ["ready", "attached", "needs-resetup", "resetting", "building", "destroying"];
+  wts.sort((a, b) => {
+    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
+    const oa = order.indexOf(a.status);
+    const ob = order.indexOf(b.status);
+    if (oa !== ob) return oa - ob;
+    return (b.warmedAt ?? 0) - (a.warmedAt ?? 0);
+  });
 
   if (opts.json) {
     out(true, wts, "");
     return;
   }
   if (wts.length === 0) {
-    process.stdout.write("no worktrees\n");
+    process.stdout.write("no worktrees — run `wt up <repo>` to get one\n");
     return;
   }
-  const rows = wts.map((w) => ({
-    id: w.id,
-    repo: w.repo,
-    status: w.status,
-    branch: w.branch ?? "(detached)",
-    age: w.warmedAt ? humanAge(w.warmedAt) : "-",
-    path: w.path,
-  }));
-  const header = ["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"];
-  printTable(header, rows.map((r) => [r.id, r.repo, r.status, r.branch, r.age, r.path]));
-}
-
-// ---- status ----
-
-export async function cmdStatus(opts: CmdOpts): Promise<void> {
-  const config = loadConfig();
-  const state = readState();
-  const report = Object.entries(config.repos).map(([name, repo]) => {
-    const wts = worktreesForRepo(state, name).filter(
-      (w) => !w.id.startsWith("pending-"),
-    );
-    return {
-      repo: name,
-      ready: wts.filter((w) => w.status === "ready").length,
-      attached: wts.filter((w) => w.status === "attached").length,
-      needsResetup: wts.filter((w) => w.status === "needs-resetup").length,
-      building: state.worktrees.filter(
-        (w) => w.repo === name && w.status === "building",
-      ).length,
-      min: repo.minPool,
-      max: repo.maxPool,
-    };
-  });
-
-  if (opts.json) {
-    out(true, report, "");
-    return;
-  }
-  const header = [
-    "REPO",
-    "READY",
-    "ATTACHED",
-    "PENDING",
-    "BUILDING",
-    "MIN",
-    "MAX",
-  ];
-  printTable(
-    header,
-    report.map((r) => [
-      r.repo,
-      String(r.ready),
-      String(r.attached),
-      String(r.needsResetup),
-      String(r.building),
-      String(r.min),
-      String(r.max),
-    ]),
-  );
+  const rows = wts.map((w) => [
+    w.id.startsWith("pending-") ? "—" : w.id,
+    w.repo,
+    statusLabel(w.status),
+    w.branch ?? "(detached)",
+    w.warmedAt ? humanAge(w.warmedAt) : "—",
+    w.path || "(building)",
+  ]);
+  printTable(["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"], rows);
 }
 
 // ---- prewarm ----
