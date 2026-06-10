@@ -4,7 +4,7 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 const WIDTH = 60;
-const HEIGHT = 11;
+const HEIGHT = 9;
 const TAGLINE = "warm git worktrees, instantly  〜";
 
 // A layered pine, 4 rows tall, drawn relative to its tip column:
@@ -28,35 +28,25 @@ const SMALL: PineRow[] = [
   [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
 ];
 
-// Tiny pine (2 rows tall):  /\  ||
-const TINY: PineRow[] = [
-  [{ dx: 0, ch: "/" }, { dx: 1, ch: "\\" }],
-  [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
-];
-
 // Each pine: [row, col, size]. Placed asymmetrically (left and right differ),
 // staggered, spaced apart, and kept clear of the centre-right where the
 // wordmark goes.
-type Size = "big" | "small" | "tiny";
+type Size = "big" | "small";
 const PINES: [number, number, Size][] = [
-  // left cluster — varied heights, irregular spacing
-  [0, 5, "big"],
-  [2, 14, "small"],
-  [0, 21, "tiny"],
-  [5, 4, "big"],
-  [5, 13, "tiny"],
-  [6, 21, "small"],
-  // right cluster — different rhythm than the left
-  [1, 40, "small"],
-  [0, 47, "big"],
-  [3, 54, "tiny"],
-  [5, 39, "tiny"],
-  [4, 47, "small"],
-  [6, 55, "big"],
+  // left side — varied heights, spread out horizontally
+  [0, 4, "big"],
+  [2, 12, "small"],
+  [4, 6, "small"],
+  [1, 21, "big"],
+  // right side — different rhythm than the left
+  [0, 40, "small"],
+  [2, 49, "big"],
+  [4, 43, "big"],
+  [3, 56, "small"],
 ];
 
 function pineFor(size: Size): PineRow[] {
-  return size === "big" ? BIG : size === "small" ? SMALL : TINY;
+  return size === "big" ? BIG : SMALL;
 }
 
 const WORD = [
@@ -136,6 +126,8 @@ export function logo(): string {
     const trimmed = out.replace(/\s+$/, "");
     return trimmed ? "  " + trimmed : "";
   });
+  // Drop trailing empty rows so the banner sits flush against the tagline.
+  while (lines.length && lines[lines.length - 1] === "") lines.pop();
   const tag = color ? `${DIM}${TAGLINE}${RESET}` : TAGLINE;
   return `\n${lines.join("\n")}\n\n  ${tag}\n`;
 }
