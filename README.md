@@ -93,9 +93,14 @@ in the worktree, so whatever those need must be available too.
 | `wt down [<id>]`         | Release a worktree back to the pool (defaults to the cwd's).      |
 | `wt list [<repo>]`       | List worktrees and their status.                                  |
 | `wt status`              | Show pool health per repo.                                        |
+| `wt config`              | Print and validate the config.                                    |
+
+### Advanced
+
+| Command                  | Description                                                       |
+| ------------------------ | ----------------------------------------------------------------- |
 | `wt prewarm <repo>`      | Warm the pool to `minPool` ready worktrees.                       |
 | `wt gc`                  | Prune stale/removed worktrees.                                    |
-| `wt config`              | Print and validate the config.                                    |
 
 All commands accept `--json` for machine-readable output. `wt up` also accepts
 `--path-only` (print just the path) and `--skip-setup` (on a cold build, skip

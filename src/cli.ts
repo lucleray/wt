@@ -20,9 +20,11 @@ Usage:
   wt down [<id>]          Release a worktree back to the pool
   wt list [<repo>]        List worktrees and their status
   wt status               Show pool health per repo
+  wt config               Print and validate config
+
+Advanced:
   wt prewarm <repo>       Warm the pool to minPool
   wt gc                   Prune stale/removed worktrees
-  wt config               Print and validate config
 
 Options:
   --json        Machine-readable output
