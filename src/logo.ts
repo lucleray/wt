@@ -3,88 +3,81 @@ const WHITE = "\x1b[97m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-// The "wt" wordmark, drawn in white, overlaid centered on a forest backdrop.
+const WIDTH = 60;
+const HEIGHT = 11;
+const TAGLINE = "warm git worktrees, instantly  〜";
+
+// A layered pine, 4 rows tall, drawn relative to its tip column:
+//    /\
+//   //\\
+//  ///\\\
+//    ||
+const PINE: { dx: number; ch: string }[][] = [
+  [{ dx: 0, ch: "/" }, { dx: 1, ch: "\\" }],
+  [{ dx: -1, ch: "/" }, { dx: 0, ch: "/" }, { dx: 1, ch: "\\" }, { dx: 2, ch: "\\" }],
+  [
+    { dx: -2, ch: "/" }, { dx: -1, ch: "/" }, { dx: 0, ch: "/" },
+    { dx: 1, ch: "\\" }, { dx: 2, ch: "\\" }, { dx: 3, ch: "\\" },
+  ],
+  [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
+];
+
+// Tips placed as [row, col] of the pine apex. Staggered, spaced apart, and kept
+// clear of the centre (cols ~24-36) where the wordmark goes. Pines span 4 cols
+// left and 3 right of the tip, so keep tips within [3, WIDTH-4].
+const TIPS: [number, number][] = [
+  [0, 6], [0, 18], [0, 42], [0, 54],
+  [3, 11], [3, 48],
+  [6, 5], [6, 17], [6, 43], [6, 55],
+];
+
 const WORD = [
   "█   █ ███",
   "█ █ █  █ ",
   "██ ██  █ ",
 ];
 
-const WIDTH = 56; // banner width in columns
-const HEIGHT = 9; // banner height in rows
-const TAGLINE = "warm git worktrees, instantly  〜";
+type Cell = { ch: string; word: boolean };
 
-/**
- * Build a forest backdrop of small trees, then stamp the white "wt" wordmark
- * into the centre. Returns an array of {char, isWord} cells per row so we can
- * colour trees green and the wordmark white.
- */
-function compose(): { ch: string; word: boolean }[][] {
-  const grid: { ch: string; word: boolean }[][] = [];
-  // Trees are 4 cols wide, 2 rows tall:  " /\ " over "/__\".
-  // Each vertical pair of rows is one band of trees; alternate bands shift by
-  // 2 cols so the forest is staggered rather than a rigid grid.
-  for (let y = 0; y < HEIGHT; y++) {
-    const row: { ch: string; word: boolean }[] = [];
-    const band = Math.floor(y / 2);
-    const isTop = y % 2 === 0;
-    const offset = (band % 2) * 2;
-    for (let x = 0; x < WIDTH; x++) {
-      // Only draw a tree where a full 4-wide cell fits, so no partial trees
-      // bleed off the left/right edges.
-      const shifted = x - offset;
-      const col = ((shifted % 4) + 4) % 4;
-      const cellStart = shifted - col;
-      let ch = " ";
-      if (shifted >= 0 && cellStart + 3 < WIDTH) {
-        if (isTop) {
-          if (col === 1) ch = "/";
-          else if (col === 2) ch = "\\";
-        } else {
-          if (col === 0) ch = "/";
-          else if (col === 1 || col === 2) ch = "_";
-          else if (col === 3) ch = "\\";
-        }
+function compose(): Cell[][] {
+  const grid: Cell[][] = Array.from({ length: HEIGHT }, () =>
+    Array.from({ length: WIDTH }, () => ({ ch: " ", word: false })),
+  );
+
+  // Plant pines.
+  for (const [ty, tx] of TIPS) {
+    PINE.forEach((rowCells, r) => {
+      const y = ty + r;
+      if (y < 0 || y >= HEIGHT) return;
+      for (const { dx, ch } of rowCells) {
+        const x = tx + dx;
+        if (x < 0 || x >= WIDTH) continue;
+        grid[y][x] = { ch, word: false };
       }
-      row.push({ ch, word: false });
-    }
-    grid.push(row);
+    });
   }
 
-  // Stamp the wordmark centred.
+  // Stamp the wordmark centred, clearing a margin around it first.
   const wordW = Math.max(...WORD.map((l) => l.length));
   const startX = Math.floor((WIDTH - wordW) / 2);
   const startY = Math.floor((HEIGHT - WORD.length) / 2);
-  for (let i = 0; i < WORD.length; i++) {
-    const line = WORD[i];
-    for (let j = 0; j < line.length; j++) {
-      const x = startX + j;
-      const y = startY + i;
-      if (y < 0 || y >= HEIGHT || x < 0 || x >= WIDTH) continue;
-      if (line[j] === " ") {
-        // Clear a little breathing room around the letters.
-        grid[y][x] = { ch: " ", word: false };
-      } else {
-        grid[y][x] = { ch: line[j], word: true };
-      }
-    }
-  }
-
-  // Carve a 1-cell margin around the wordmark so trees don't touch it.
   for (let i = -1; i <= WORD.length; i++) {
-    for (let j = -1; j <= wordW; j++) {
-      const x = startX + j;
+    for (let j = -2; j <= wordW + 1; j++) {
       const y = startY + i;
+      const x = startX + j;
       if (y < 0 || y >= HEIGHT || x < 0 || x >= WIDTH) continue;
-      const inWord =
-        i >= 0 &&
-        i < WORD.length &&
-        j >= 0 &&
-        j < WORD[i].length &&
-        WORD[i][j] !== " ";
-      if (!inWord && !grid[y][x].word) grid[y][x] = { ch: " ", word: false };
+      grid[y][x] = { ch: " ", word: false };
     }
   }
+  WORD.forEach((line, i) => {
+    for (let j = 0; j < line.length; j++) {
+      if (line[j] === " ") continue;
+      const y = startY + i;
+      const x = startX + j;
+      if (y < 0 || y >= HEIGHT || x < 0 || x >= WIDTH) continue;
+      grid[y][x] = { ch: line[j], word: true };
+    }
+  });
 
   return grid;
 }
@@ -111,7 +104,8 @@ export function logo(): string {
       out += cell.ch;
     }
     if (color && mode) out += RESET;
-    return "  " + out.replace(/\s+$/, "");
+    const trimmed = out.replace(/\s+$/, "");
+    return trimmed ? "  " + trimmed : "";
   });
   const tag = color ? `${DIM}${TAGLINE}${RESET}` : TAGLINE;
   return `\n${lines.join("\n")}\n\n  ${tag}\n`;
