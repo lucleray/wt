@@ -22,6 +22,7 @@ import { now } from "./time.js";
 export interface CmdOpts {
   json?: boolean;
   pathOnly?: boolean;
+  skipSetup?: boolean;
 }
 
 function out(json: boolean | undefined, data: unknown, human: string): void {
@@ -69,7 +70,12 @@ export async function cmdUp(
         `no warm worktree ready for "${repoName}", building one (cold start)...\n`,
       );
     }
-    const built = buildWorktree(config, repoName, repo);
+    if (opts.skipSetup && !opts.json && !opts.pathOnly && repo.setup) {
+      process.stderr.write(
+        `--skip-setup: not running "${repo.setup}" — run it yourself in the worktree.\n`,
+      );
+    }
+    const built = buildWorktree(config, repoName, repo, opts.skipSetup);
     claimed = await withState((state): Worktree => {
       const wt: Worktree = {
         id: built.id,

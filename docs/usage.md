@@ -13,6 +13,7 @@ worktree stays detached at the base branch.
 wt up front                  # detached at main, prints path
 wt up front luc/my-feature   # creates + checks out luc/my-feature
 wt up front --path-only      # print only the path (for cd "$(...)")
+wt up front --skip-setup     # cold build without running the setup script
 wt up front --json
 ```
 
@@ -22,6 +23,14 @@ Behavior:
 - If none is ready, one is built on demand (slower; a warning is printed).
 - After handing out, a background top-up refills the pool.
 - Prints how long ago the worktree was warmed so you can refresh if needed.
+
+`--skip-setup` only affects a **cold build** (when the pool is empty): the
+worktree is checked out but the repo's setup script (e.g. `pnpm install`) is
+not run. Useful on a bad connection where `pnpm install` can't succeed — you
+get a usable checkout immediately and can run setup yourself later. If a warm
+worktree is already available, the flag has no effect (it was set up at warm
+time). Releasing a skipped worktree with `wt down` lets the background top-up
+run setup and heal it back to a fully-ready state.
 
 ## `wt down [<id>]`
 

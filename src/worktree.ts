@@ -37,11 +37,14 @@ function resolveCommit(repo: RepoConfig, ref: string): string {
 /**
  * Create a detached worktree at the base branch and run the setup script.
  * Returns the new worktree metadata. Throws on failure (caller cleans up state).
+ * Pass `skipSetup` to check out the worktree without running the setup script
+ * (e.g. on a bad connection where `pnpm install` can't succeed).
  */
 export function buildWorktree(
   config: Config,
   repoName: string,
   repo: RepoConfig,
+  skipSetup = false,
 ): BuildResult {
   fetchSource(repo);
   const ref = baseRef(repo);
@@ -65,7 +68,7 @@ export function buildWorktree(
     ]);
     return resolveCommit(repo, ref);
   });
-  runSetup(repo, path);
+  if (!skipSetup) runSetup(repo, path);
 
   return { id, path, baseCommit };
 }

@@ -27,6 +27,7 @@ Usage:
 Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
+  --skip-setup  (up) On a cold build, skip the repo's setup script
   -h, --help    Show help
   -v, --version Show version
 `;
@@ -55,12 +56,14 @@ async function main(): Promise<void> {
     options: {
       json: { type: "boolean" },
       "path-only": { type: "boolean" },
+      "skip-setup": { type: "boolean" },
     },
   });
 
   const opts: CmdOpts = {
     json: values.json as boolean | undefined,
     pathOnly: values["path-only"] as boolean | undefined,
+    skipSetup: values["skip-setup"] as boolean | undefined,
   };
 
   switch (cmd) {

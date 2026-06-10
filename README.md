@@ -97,7 +97,9 @@ in the worktree, so whatever those need must be available too.
 | `wt gc`                  | Prune stale/removed worktrees.                                    |
 | `wt config`              | Print and validate the config.                                    |
 
-All commands accept `--json` for machine-readable output.
+All commands accept `--json` for machine-readable output. `wt up` also accepts
+`--path-only` (print just the path) and `--skip-setup` (on a cold build, skip
+the repo's setup script — handy on a bad connection).
 
 See [docs/usage.md](docs/usage.md) for full details.
 
