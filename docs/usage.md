@@ -56,13 +56,13 @@ wt status
 wt status --json
 ```
 
-## `wt prewarm <repo> [-n N]`
+## `wt prewarm <repo>`
 
-Build N ready worktrees in the background (default: enough to reach `poolSize`).
+Warm the pool until it reaches the repo's `minPool` ready worktrees. Runs in
+the foreground so you see progress and any setup errors.
 
 ```sh
 wt prewarm front
-wt prewarm front -n 3
 ```
 
 ## `wt gc`

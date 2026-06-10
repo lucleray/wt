@@ -22,7 +22,6 @@ import { now } from "./time.js";
 export interface CmdOpts {
   json?: boolean;
   pathOnly?: boolean;
-  n?: number;
 }
 
 function out(json: boolean | undefined, data: unknown, human: string): void {

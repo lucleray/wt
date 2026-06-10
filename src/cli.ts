@@ -19,14 +19,13 @@ Usage:
   wt down [<id>]          Release a worktree back to the pool
   wt list [<repo>]        List worktrees and their status
   wt status               Show pool health per repo
-  wt prewarm <repo> [-n N] Build N ready worktrees
+  wt prewarm <repo>       Warm the pool to minPool
   wt gc                   Prune stale/removed worktrees
   wt config               Print and validate config
 
 Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
-  -n <N>        (prewarm) build hint (currently fills to minPool)
   -h, --help    Show help
   -v, --version Show version
 `;
@@ -50,14 +49,12 @@ async function main(): Promise<void> {
     options: {
       json: { type: "boolean" },
       "path-only": { type: "boolean" },
-      n: { type: "string" },
     },
   });
 
   const opts: CmdOpts = {
     json: values.json as boolean | undefined,
     pathOnly: values["path-only"] as boolean | undefined,
-    n: values.n ? parseInt(values.n as string, 10) : undefined,
   };
 
   switch (cmd) {
