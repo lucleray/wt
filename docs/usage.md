@@ -3,6 +3,9 @@
 All commands accept `--json` for machine-readable output, which is what agents
 should use.
 
+A `<repo>` is a **path** (e.g. `~/w/vercel/api`) or a configured **alias**
+(e.g. `api`). Paths are first-class; aliases are an optional convenience.
+
 ## `wt up <repo> [branch]`
 
 Get a ready worktree for `<repo>` and print its absolute path. If `branch` is
@@ -10,15 +13,19 @@ given, a new branch is created and checked out in the worktree; otherwise the
 worktree stays detached at the base branch.
 
 ```sh
-wt up front                  # detached at main, prints path
-wt up front luc/my-feature   # creates + checks out luc/my-feature
-wt up front --path-only      # print only the path (for cd "$(...)")
-wt up front --skip-setup     # cold build without running the setup script
-wt up front --json
+wt up ~/w/vercel/api               # by path; sets it up on first use
+wt up api                          # by alias (once configured)
+wt up ~/w/vercel/api luc/feature   # creates + checks out luc/feature
+wt up ~/w/vercel/api --path-only   # print only the path (for cd "$(...)")
+wt up ~/w/vercel/api --skip-setup  # cold build without running the setup script
+wt up ~/w/vercel/api --json
 ```
 
 Behavior:
 
+- The first time you `up` an **unconfigured path**, `wt` sets it up: in a
+  terminal it prompts; for agents (no TTY) it auto-registers with a detected
+  setup command and defaults, then continues.
 - If a `ready` worktree exists, it is handed out instantly.
 - If none is ready, one is built on demand (slower; a warning is printed).
 - After handing out, a background top-up refills the pool.

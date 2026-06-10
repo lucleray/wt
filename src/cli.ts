@@ -15,6 +15,9 @@ import { logo } from "./logo.js";
 
 const HELP = `wt — agent-first git worktree pool manager
 
+A <repo> is a path (e.g. ~/w/vercel/api) or a configured alias (e.g. api).
+The first time you 'up' an unconfigured path, wt offers to set it up.
+
 Usage:
   wt up <repo> [branch]   Get a ready worktree (instant from pool)
   wt down [<id>]          Release a worktree back to the pool
@@ -32,12 +35,13 @@ Options:
   --skip-setup  (up) On a cold build, skip the repo's setup script
 
 config <repo> flags (non-interactive — for agents/scripts):
-  --source <path>     Path to the local git repo (required for new repos)
+  --name <alias>      Friendly alias for the repo (optional)
   --base <branch>     Base branch (default: main)
   --setup <cmd>       Setup command; auto-suggested from repo if omitted
   --no-setup          Explicitly set no setup command
   --min <n>           Min pool size (default: 1)
   --max <n>           Max pool size (default: 5)
+  --source <path>     Source path (usually just pass the path as <repo>)
   --yes               Skip prompts / accept defaults
 
   -h, --help    Show help
@@ -70,6 +74,7 @@ async function main(): Promise<void> {
       "path-only": { type: "boolean" },
       "skip-setup": { type: "boolean" },
       source: { type: "string" },
+      name: { type: "string" },
       base: { type: "string" },
       setup: { type: "string" },
       "no-setup": { type: "boolean" },
@@ -84,6 +89,7 @@ async function main(): Promise<void> {
     pathOnly: values["path-only"] as boolean | undefined,
     skipSetup: values["skip-setup"] as boolean | undefined,
     source: values.source as string | undefined,
+    name: values.name as string | undefined,
     baseBranch: values.base as string | undefined,
     setup: values.setup as string | undefined,
     noSetup: values["no-setup"] as boolean | undefined,

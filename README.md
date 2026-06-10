@@ -18,13 +18,17 @@ configured repo **instantly** by handing out a pre-warmed git worktree from a
 pool.
 
 ```sh
-wt up front      # -> /Users/you/w/worktrees/front/wt-ab12  (deps already installed)
-cd "$(wt up front --path-only)"
+wt up ~/w/vercel/api      # first time: offers to set it up, then hands you a worktree
+cd "$(wt up ~/w/vercel/api --path-only)"
 # ...work, commit, open a PR...
-wt down          # release the worktree back to the pool
+wt down                   # release the worktree back to the pool
 ```
 
-The slow part of starting work in a big repo — cloning/checking out and running
+A repo is identified by its **path**. The first time you `up` an unconfigured
+path, `wt` sets it up (auto-detecting a setup command like `pnpm install`). You
+can also give a repo a short **alias** and use that instead (`wt up api`).
+
+The slow part of starting work in a big repo — checking out and running
 `pnpm install` (or whatever your setup is) — is **pre-paid in the background**.
 By the time you ask for a worktree, one is already warm and waiting.
 
@@ -40,7 +44,7 @@ and set up. Asking for one (`wt up`) is near-instant; releasing it (`wt down`)
 returns it to the pool to be reused. A background top-up keeps the pool full.
 
 This is built to be driven by coding agents: an agent started in `~/w` can run
-`wt up <repo>`, `cd` into the printed path, and start working immediately —
+`wt up <path>`, `cd` into the printed path, and start working immediately —
 no manual environment juggling.
 
 ## Install
@@ -56,34 +60,16 @@ in the worktree, so whatever those need must be available too.
 
 ## Quick start
 
-1. Configure a repo (see [docs/config.md](docs/config.md)):
+Just point `wt` at a repo path — it sets it up on first use:
 
-   ```jsonc
-   // ~/.config/wt/config.jsonc
-   {
-     "worktreeRoot": "~/w/worktrees",
-     "repos": {
-       "front": {
-         "source": "~/w/vercel/front",
-         "baseBranch": "main",
-         "setup": "pnpm install",
-         "poolSize": 2
-       }
-     }
-   }
-   ```
+```sh
+wt up ~/w/vercel/api
+```
 
-2. Pre-warm the pool (optional — `up` will build on demand otherwise):
-
-   ```sh
-   wt prewarm front
-   ```
-
-3. Start working:
-
-   ```sh
-   wt up front
-   ```
+That detects the repo, suggests a setup command, registers it, and hands you a
+worktree. To pre-warm without working yet, or to tune settings, use
+`wt config ~/w/vercel/api` (see [docs/config.md](docs/config.md)). The config is
+keyed by repo path; an optional `name` gives you a short alias.
 
 ## Commands
 

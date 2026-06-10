@@ -11,6 +11,7 @@ import {
   removeOrphanPath,
 } from "./worktree.js";
 import { loadConfig, type Config } from "./config.js";
+import { repoSlug } from "./repo.js";
 import { now } from "./time.js";
 import { realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -112,9 +113,14 @@ export async function reconcile(config?: Config): Promise<string[]> {
     return victims;
   });
 
+  // Map slug -> repo config (state records reference repos by slug).
+  const bySlug = new Map(
+    Object.values(cfg.repos).map((r) => [repoSlug(r.source), r]),
+  );
+
   // Do the slow filesystem cleanup outside the lock.
   for (const wt of toClean) {
-    const repo = cfg.repos[wt.repo];
+    const repo = bySlug.get(wt.repo);
     if (repo && wt.path && worktreeExistsOnDisk(wt)) {
       try {
         removeWorktreeDir(repo, wt);
@@ -148,8 +154,8 @@ async function sweepOrphans(cfg: Config): Promise<string[]> {
     }
   });
 
-  for (const [repoName, repo] of Object.entries(cfg.repos)) {
-    const poolDir = realish(join(cfg.worktreeRoot, repoName));
+  for (const repo of Object.values(cfg.repos)) {
+    const poolDir = realish(join(cfg.worktreeRoot, repoSlug(repo.source)));
     for (const gitPath of listGitWorktrees(repo)) {
       const real = realish(gitPath);
       // Only manage paths inside this repo's pool dir.

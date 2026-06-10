@@ -42,21 +42,21 @@ function resolveCommit(repo: RepoConfig, ref: string): string {
  */
 export function buildWorktree(
   config: Config,
-  repoName: string,
+  slug: string,
   repo: RepoConfig,
   skipSetup = false,
 ): BuildResult {
   fetchSource(repo);
   const ref = baseRef(repo);
   const id = shortId();
-  const dir = join(config.worktreeRoot, repoName);
+  const dir = join(config.worktreeRoot, slug);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `wt-${id}`);
 
   // Serialize `git worktree add` per source repo: concurrent adds race on the
   // shared .git lock. The setup script runs outside the lock so installs can
   // still proceed in parallel.
-  const baseCommit = withNamedLockSync(`git-${repoName}`, () => {
+  const baseCommit = withNamedLockSync(`git-${slug}`, () => {
     runOrThrow("git", [
       "-C",
       repo.source,

@@ -1,4 +1,4 @@
-import { loadConfig, getRepo } from "./config.js";
+import { loadConfig, type Config, type RepoConfig } from "./config.js";
 import {
   withState,
   worktreesForRepo,
@@ -12,39 +12,41 @@ import {
   resetupWorktree,
   removeWorktreeDir,
 } from "./worktree.js";
+import { resolveRepo } from "./repo.js";
 import { reconcile } from "./reconcile.js";
 import { now } from "./time.js";
 
 /**
  * Bring a repo's `ready` pool up to minPool, and scale down (destroy released
  * worktrees) only when the total footprint exceeds maxPool. Re-sets-up released
- * worktrees
- * first (cheap, keeps node_modules), then builds new ones as needed. Runs
- * synchronously; invoked in the foreground (prewarm) or in a detached bg
- * process (after up/down).
+ * worktrees first (cheap, keeps node_modules), then builds new ones as needed.
+ * Runs synchronously; invoked in the foreground (prewarm) or in a detached bg
+ * process (after up/down). `token` is a source path or alias.
  */
-export async function topupRepo(repoName: string): Promise<void> {
+export async function topupRepo(token: string): Promise<void> {
   const config = loadConfig();
-  const repo = getRepo(config, repoName);
+  const resolved = resolveRepo(config, token);
+  if (!resolved.cfg) return; // not configured — nothing to top up
+  const slug = resolved.slug;
 
   // Serialize top-ups per repo. If one is already running, it will observe the
   // latest state on its next loop iteration, so we can safely no-op here. This
   // prevents concurrent top-ups from racing on git operations in the shared
   // source repo.
-  const release = tryNamedLock(`topup-${repoName}`);
+  const release = tryNamedLock(`topup-${slug}`);
   if (!release) return;
 
   try {
-    await topupRepoLocked(config, repo, repoName);
+    await topupRepoLocked(config, resolved.cfg, slug);
   } finally {
     release();
   }
 }
 
 async function topupRepoLocked(
-  config: ReturnType<typeof loadConfig>,
-  repo: ReturnType<typeof getRepo>,
-  repoName: string,
+  config: Config,
+  repo: RepoConfig,
+  slug: string,
 ): Promise<void> {
   // Clean up anything left over from a crashed run before topping up.
   await reconcile(config);
@@ -52,7 +54,7 @@ async function topupRepoLocked(
   for (;;) {
     // Decide the next action under the lock, then do slow work outside it.
     const action = await withState((state): TopupAction => {
-      const wts = worktreesForRepo(state, repoName);
+      const wts = worktreesForRepo(state, slug);
       const ready = wts.filter((w) => w.status === "ready").length;
       // Count in-flight builds/resets toward the warm target so we don't
       // overshoot when several top-ups run at once.
@@ -85,7 +87,7 @@ async function topupRepoLocked(
         if (total < repo.maxPool) {
           const placeholder: Worktree = {
             id: `pending-${Math.random().toString(36).slice(2, 6)}`,
-            repo: repoName,
+            repo: slug,
             path: "",
             status: "building",
             branch: null,
@@ -150,7 +152,7 @@ async function topupRepoLocked(
 
     if (action.kind === "build") {
       try {
-        const built = buildWorktree(config, repoName, repo);
+        const built = buildWorktree(config, slug, repo);
         await withState((state) => {
           const w = state.worktrees.find((x) => x.id === action.placeholderId);
           if (w) {

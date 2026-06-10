@@ -1,11 +1,13 @@
 import {
   loadConfig,
-  getRepo,
   validateRepo,
   configPath,
   writeRepoConfig,
-  readRawConfig,
+  repoLabel,
+  type Config,
+  type RepoConfig,
 } from "./config.js";
+import { resolveRepo, repoSlug, sourceForSlug, looksLikePath } from "./repo.js";
 import { suggestSetup } from "./suggest.js";
 import {
   withState,
@@ -31,6 +33,7 @@ import {
   expandPath,
   isInteractive,
   prompt,
+  run,
 } from "./util.js";
 import { now } from "./time.js";
 
@@ -40,6 +43,7 @@ export interface CmdOpts {
   skipSetup?: boolean;
   // `wt config <repo>` setters (non-interactive / agent mode):
   source?: string;
+  name?: string;
   baseBranch?: string;
   setup?: string;
   noSetup?: boolean;
@@ -53,28 +57,38 @@ function out(json: boolean | undefined, data: unknown, human: string): void {
   else if (human) process.stdout.write(human + "\n");
 }
 
-/** Spawn a detached background top-up for a repo. */
-function triggerTopup(repo: string): void {
+/** Spawn a detached background top-up for a repo (by source path). */
+function triggerTopup(source: string): void {
   const self = process.argv[1];
-  spawnDetached(process.execPath, [self, "__topup", repo]);
+  spawnDetached(process.execPath, [self, "__topup", source]);
 }
 
 // ---- up ----
 
 export async function cmdUp(
-  repoName: string,
+  token: string,
   branch: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
-  const config = loadConfig();
-  const repo = getRepo(config, repoName);
+  let config = loadConfig();
+  let resolved = resolveRepo(config, token);
+
+  // Unconfigured path → offer/auto set it up, then continue.
+  if (!resolved.cfg) {
+    await ensureConfigured(resolved.source, opts);
+    config = loadConfig();
+    resolved = resolveRepo(config, resolved.source);
+    if (!resolved.cfg) return; // setup aborted
+  }
+  const repo = resolved.cfg;
+  const slug = resolved.slug;
 
   // Clean up any crashed/stale worktrees before handing one out.
   await reconcile(config);
 
   // Try to claim a ready worktree under the lock.
   let claimed = await withState((state): Worktree | null => {
-    const ready = worktreesForRepo(state, repoName).find(
+    const ready = worktreesForRepo(state, slug).find(
       (w) => w.status === "ready" && worktreeExistsOnDisk(w),
     );
     if (!ready) return null;
@@ -90,7 +104,7 @@ export async function cmdUp(
     cold = true;
     if (!opts.json && !opts.pathOnly) {
       process.stderr.write(
-        `no warm worktree ready for "${repoName}", building one (cold start)...\n`,
+        `no warm worktree ready for "${repoLabel(repo)}", building one (cold start)...\n`,
       );
     }
     if (opts.skipSetup && !opts.json && !opts.pathOnly && repo.setup) {
@@ -98,11 +112,11 @@ export async function cmdUp(
         `--skip-setup: not running "${repo.setup}" — run it yourself in the worktree.\n`,
       );
     }
-    const built = buildWorktree(config, repoName, repo, opts.skipSetup);
+    const built = buildWorktree(config, slug, repo, opts.skipSetup);
     claimed = await withState((state): Worktree => {
       const wt: Worktree = {
         id: built.id,
-        repo: repoName,
+        repo: slug,
         path: built.path,
         status: "attached",
         branch: null,
@@ -129,7 +143,7 @@ export async function cmdUp(
   }
 
   // Top up the pool in the background.
-  triggerTopup(repoName);
+  triggerTopup(repo.source);
 
   if (opts.pathOnly) {
     process.stdout.write(claimed.path + "\n");
@@ -142,16 +156,49 @@ export async function cmdUp(
     opts.json,
     {
       id: claimed.id,
-      repo: repoName,
+      repo: repoLabel(repo),
+      source: repo.source,
       path: claimed.path,
       branch: claimed.branch,
       cold,
       warmedAt: claimed.warmedAt,
     },
     `${claimed.path}${warmedNote}` +
-      (cold ? "" : "") +
       (claimed.branch ? `\nbranch: ${claimed.branch}` : "\n(detached — create a branch with: git switch -c <name>)"),
   );
+}
+
+/**
+ * Ensure a repo at `source` is configured. With a TTY (and not --json/--yes),
+ * runs the interactive config flow; otherwise auto-registers with defaults so
+ * agents have zero friction.
+ */
+async function ensureConfigured(source: string, opts: CmdOpts): Promise<void> {
+  // Verify it's actually a git repo before offering setup.
+  const isGit = run("git", ["-C", source, "rev-parse", "--git-dir"]);
+  if (isGit.code !== 0) {
+    throw new Error(`not a git repo: ${source}`);
+  }
+  if (isInteractive() && !opts.json && !opts.yes) {
+    process.stderr.write(
+      `"${tildify(source)}" isn't configured yet — let's set it up.\n`,
+    );
+    await configureRepoInteractive(source);
+  } else {
+    const sug = suggestSetup(source);
+    writeRepoConfig({
+      source,
+      baseBranch: DEFAULT_BASE,
+      setup: opts.skipSetup ? null : (sug.setup ?? undefined),
+      minPool: DEFAULT_MIN,
+      maxPool: DEFAULT_MAX,
+    });
+    if (!opts.json && !opts.pathOnly) {
+      process.stderr.write(
+        `registered "${tildify(source)}"${sug.setup ? ` (setup: ${sug.setup})` : ""}.\n`,
+      );
+    }
+  }
 }
 
 // ---- down ----
@@ -186,12 +233,15 @@ export async function cmdDown(
   // Detach HEAD so the branch isn't held; cheap, safe to do in foreground.
   detach(target);
 
-  triggerTopup(target.repo);
+  // Top up the originating repo's pool (resolve slug -> source).
+  const config = loadConfig();
+  const source = sourceForSlug(config, target.repo);
+  if (source) triggerTopup(source);
 
   out(
     opts.json,
     { id: target.id, repo: target.repo, released: true },
-    `released ${target.id} (${target.repo}) — returning to pool`,
+    `released ${target.id} — returning to pool`,
   );
 }
 
@@ -228,19 +278,34 @@ function branchLabel(w: { branch: string | null }, baseBranch: string): string {
 }
 
 export async function cmdList(
-  repoName: string | undefined,
+  token: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
   const config = loadConfig();
   const state = readState();
+
+  // slug -> repo config, for base-branch + display lookups.
+  const bySlug = new Map(
+    Object.values(config.repos).map((r) => [repoSlug(r.source), r]),
+  );
+  const display = (slug: string): string => {
+    const r = bySlug.get(slug);
+    return r ? repoLabel(r) : slug;
+  };
+
   // Include everything, even in-flight builds (pending placeholders).
   let wts = [...state.worktrees];
-  if (repoName) wts = wts.filter((w) => w.repo === repoName);
+  if (token) {
+    const filterSlug = resolveRepo(config, token).slug;
+    wts = wts.filter((w) => w.repo === filterSlug);
+  }
 
-  // Sort: group by repo, then ready first, then by age.
+  // Sort: group by repo (display label), then ready first, then by age.
   const order = ["ready", "attached", "needs-resetup", "resetting", "building", "destroying"];
   wts.sort((a, b) => {
-    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
+    const da = display(a.repo);
+    const db = display(b.repo);
+    if (da !== db) return da.localeCompare(db);
     const oa = order.indexOf(a.status);
     const ob = order.indexOf(b.status);
     if (oa !== ob) return oa - ob;
@@ -257,9 +322,9 @@ export async function cmdList(
   }
   const rows = wts.map((w) => [
     w.id.startsWith("pending-") ? "—" : w.id,
-    w.repo,
+    display(w.repo),
     statusLabel(w.status),
-    branchLabel(w, config.repos[w.repo]?.baseBranch ?? "main"),
+    branchLabel(w, bySlug.get(w.repo)?.baseBranch ?? "main"),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
     w.path ? tildify(w.path) : "(building)",
   ]);
@@ -269,21 +334,27 @@ export async function cmdList(
 // ---- prewarm ----
 
 export async function cmdPrewarm(
-  repoName: string,
+  token: string,
   opts: CmdOpts,
 ): Promise<void> {
   const config = loadConfig();
-  getRepo(config, repoName); // validate exists
+  const resolved = resolveRepo(config, token);
+  if (!resolved.cfg) {
+    throw new Error(
+      `"${token}" isn't configured. Run \`wt up ${token}\` or \`wt config ${token}\` first.`,
+    );
+  }
+  const label = repoLabel(resolved.cfg);
   // Run top-up in the foreground so the user sees progress/errors.
   if (!opts.json) {
-    process.stdout.write(`warming pool for "${repoName}"...\n`);
+    process.stdout.write(`warming pool for "${label}"...\n`);
   }
-  await topupRepo(repoName);
+  await topupRepo(resolved.source);
   const state = readState();
-  const ready = worktreesForRepo(state, repoName).filter(
+  const ready = worktreesForRepo(state, resolved.slug).filter(
     (w) => w.status === "ready",
   ).length;
-  out(opts.json, { repo: repoName, ready }, `pool ready: ${ready} worktree(s)`);
+  out(opts.json, { repo: label, ready }, `pool ready: ${ready} worktree(s)`);
 }
 
 // ---- gc ----
@@ -309,11 +380,13 @@ export async function cmdGc(opts: CmdOpts): Promise<void> {
 
 export async function cmdConfig(opts: CmdOpts): Promise<void> {
   const config = loadConfig();
-  const validations = Object.entries(config.repos).map(([name, repo]) =>
-    validateRepo(name, repo),
-  );
+  const repos = Object.values(config.repos);
 
   if (opts.json) {
+    const validations = repos.map((repo) => ({
+      ...validateRepo(repo),
+      name: repo.name,
+    }));
     out(true, { configPath: configPath(), config, validations }, "");
     return;
   }
@@ -323,30 +396,30 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
   process.stdout.write(`  config    ${tildify(configPath())}\n`);
   process.stdout.write(`  worktrees ${tildify(config.worktreeRoot)}\n\n`);
 
-  // Repo table.
-  const repos = Object.entries(config.repos);
   if (repos.length === 0) {
-    process.stdout.write("  no repos configured — see docs/config.md\n");
+    process.stdout.write("  no repos configured — run `wt up <path>` or `wt config <path>`\n\n");
     return;
   }
-  const ok = (name: string) => validations.find((v) => v.name === name)?.ok;
-  const rows = repos.map(([name, repo]) => [
-    ok(name) ? "✓" : "✗",
-    name,
-    repo.baseBranch,
-    `${repo.minPool}–${repo.maxPool}`,
-    repo.setup ?? "—",
-    tildify(repo.source),
-  ]);
+  const broken: { label: string; problems: string[] }[] = [];
+  const rows = repos.map((repo) => {
+    const v = validateRepo(repo);
+    if (!v.ok) broken.push({ label: repoLabel(repo), problems: v.problems });
+    return [
+      v.ok ? "✓" : "✗",
+      repoLabel(repo),
+      repo.baseBranch,
+      `${repo.minPool}–${repo.maxPool}`,
+      repo.setup ?? "—",
+      tildify(repo.source),
+    ];
+  });
   printTable(["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"], rows, "  ");
 
-  // Any validation problems, called out below.
-  const broken = validations.filter((v) => !v.ok);
   if (broken.length) {
     process.stdout.write("\n  problems:\n");
-    for (const v of broken) {
-      for (const p of v.problems) {
-        process.stdout.write(`    ✗ ${v.name}: ${p}\n`);
+    for (const b of broken) {
+      for (const p of b.problems) {
+        process.stdout.write(`    ✗ ${b.label}: ${p}\n`);
       }
     }
   }
@@ -360,14 +433,28 @@ const DEFAULT_MAX = 5;
 const DEFAULT_BASE = "main";
 
 export async function cmdConfigRepo(
-  repoName: string,
+  token: string,
   opts: CmdOpts,
 ): Promise<void> {
-  const raw = readRawConfig();
-  const existing = raw.repos?.[repoName];
+  const config = loadConfig();
 
-  // Resolve a source path: flag > existing > guess (~/w/vercel/<name>, etc).
-  const givenSource = opts.source ?? existing?.source;
+  // Resolve the token to a source path. A path-like token is the source; an
+  // alias resolves to an existing repo's source; --source overrides.
+  let source: string;
+  if (opts.source) source = opts.source;
+  else if (looksLikePath(token)) source = token;
+  else {
+    // alias: must already exist (you can't name a repo that has no path)
+    const r = config.repos[token] ?? findByAlias(config, token);
+    if (!r) {
+      throw new Error(
+        `"${token}" isn't a path or a known alias. Pass a path, e.g. wt config ~/w/vercel/${token}.`,
+      );
+    }
+    source = r.source;
+  }
+
+  const existing = resolveRepo(config, source).cfg;
 
   const hasSetters =
     opts.source !== undefined ||
@@ -375,22 +462,14 @@ export async function cmdConfigRepo(
     opts.setup !== undefined ||
     opts.noSetup ||
     opts.minPool !== undefined ||
-    opts.maxPool !== undefined;
+    opts.maxPool !== undefined ||
+    opts.name !== undefined;
 
-  // Non-interactive when: --json, --yes, any setter provided, or no TTY.
-  // Agents hit this path by passing flags.
   const interactive = isInteractive() && !opts.json && !opts.yes && !hasSetters;
 
   if (!interactive) {
     // ---- flag / agent mode ----
-    if (!givenSource) {
-      throw new Error(
-        `repo "${repoName}" has no source. Pass --source <path> (e.g. wt config ${repoName} --source ~/w/vercel/${repoName}).`,
-      );
-    }
-    const source = givenSource;
-    const sourceAbs = expandPath(source);
-    const sug = suggestSetup(sourceAbs);
+    const sug = suggestSetup(expandPath(source));
     const setup = opts.noSetup
       ? null
       : opts.setup !== undefined
@@ -398,62 +477,73 @@ export async function cmdConfigRepo(
         : existing?.setup !== undefined
           ? existing.setup
           : (sug.setup ?? undefined);
-    const input = {
+    writeRepoConfig({
       source,
-      baseBranch:
-        opts.baseBranch ?? existing?.baseBranch ?? DEFAULT_BASE,
+      name: opts.name ?? existing?.name,
+      baseBranch: opts.baseBranch ?? existing?.baseBranch ?? DEFAULT_BASE,
       setup: setup as string | null | undefined,
-      minPool: opts.minPool ?? existing?.minPool ?? existing?.poolSize ?? DEFAULT_MIN,
-      maxPool: opts.maxPool ?? existing?.maxPool ?? existing?.poolSize ?? DEFAULT_MAX,
-    };
-    writeRepoConfig(repoName, input);
-    finishConfigRepo(repoName, opts);
+      minPool: opts.minPool ?? existing?.minPool ?? DEFAULT_MIN,
+      maxPool: opts.maxPool ?? existing?.maxPool ?? DEFAULT_MAX,
+    });
+    finishConfigRepo(source, opts);
     return;
   }
 
   // ---- interactive mode ----
+  await configureRepoInteractive(source, existing ?? undefined);
+  finishConfigRepo(source, opts);
+}
+
+function findByAlias(
+  config: Config,
+  alias: string,
+): RepoConfig | null {
+  try {
+    return resolveRepo(config, alias).cfg;
+  } catch {
+    return null;
+  }
+}
+
+/** Prompt for repo settings and write the config. Used by `config <repo>` and
+ *  the auto-offer in `up`. */
+async function configureRepoInteractive(
+  source: string,
+  existing?: RepoConfig,
+): Promise<void> {
   process.stdout.write(
-    `\nConfiguring repo "${repoName}" — press enter to accept defaults.\n\n`,
+    `\nConfiguring "${tildify(source)}" — press enter to accept defaults.\n\n`,
   );
-
-  const defaultSource =
-    givenSource ?? `~/w/vercel/${repoName}`;
-  const source = await prompt("source path", defaultSource);
-  const sourceAbs = expandPath(source);
-
   const baseBranch = await prompt(
     "base branch",
     existing?.baseBranch ?? DEFAULT_BASE,
   );
 
-  const sug = suggestSetup(sourceAbs);
-  const setupDefault =
-    existing?.setup ?? (sug.setup ?? "");
+  const sug = suggestSetup(expandPath(source));
   if (sug.setup && !existing?.setup) {
-    process.stdout.write(`  (detected ${sug.reason} → suggesting "${sug.setup}")\n`);
+    process.stdout.write(
+      `  (detected ${sug.reason} → suggesting "${sug.setup}")\n`,
+    );
   }
   const setupAns = await prompt(
     "setup command (blank for none)",
-    setupDefault,
+    existing?.setup ?? sug.setup ?? "",
+  );
+  const minAns = await prompt("min pool", String(existing?.minPool ?? DEFAULT_MIN));
+  const maxAns = await prompt("max pool", String(existing?.maxPool ?? DEFAULT_MAX));
+  const nameAns = await prompt(
+    "alias name (optional)",
+    existing?.name ?? "",
   );
 
-  const minAns = await prompt(
-    "min pool",
-    String(existing?.minPool ?? existing?.poolSize ?? DEFAULT_MIN),
-  );
-  const maxAns = await prompt(
-    "max pool",
-    String(existing?.maxPool ?? existing?.poolSize ?? DEFAULT_MAX),
-  );
-
-  writeRepoConfig(repoName, {
+  writeRepoConfig({
     source,
+    name: nameAns === "" ? null : nameAns,
     baseBranch,
     setup: setupAns === "" ? null : setupAns,
     minPool: parseIntOr(minAns, DEFAULT_MIN),
     maxPool: parseIntOr(maxAns, DEFAULT_MAX),
   });
-  finishConfigRepo(repoName, opts);
 }
 
 function parseIntOr(s: string, fallback: number): number {
@@ -462,23 +552,25 @@ function parseIntOr(s: string, fallback: number): number {
 }
 
 /** Re-load, validate the just-written repo, and report the result. */
-function finishConfigRepo(repoName: string, opts: CmdOpts): void {
+function finishConfigRepo(source: string, opts: CmdOpts): void {
   const config = loadConfig();
-  const repo = getRepo(config, repoName);
-  const v = validateRepo(repoName, repo);
+  const repo = resolveRepo(config, source).cfg;
+  if (!repo) return;
+  const v = validateRepo(repo);
+  const label = repoLabel(repo);
 
   if (opts.json) {
-    out(true, { repo: repoName, config: repo, validation: v }, "");
+    out(true, { repo: label, config: repo, validation: v }, "");
     return;
   }
   process.stdout.write("\n");
-  process.stdout.write(`  saved "${repoName}" to ${tildify(configPath())}\n\n`);
+  process.stdout.write(`  saved "${label}" to ${tildify(configPath())}\n\n`);
   printTable(
     ["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"],
     [
       [
         v.ok ? "✓" : "✗",
-        repoName,
+        label,
         repo.baseBranch,
         `${repo.minPool}–${repo.maxPool}`,
         repo.setup ?? "—",
@@ -491,7 +583,7 @@ function finishConfigRepo(repoName: string, opts: CmdOpts): void {
     process.stdout.write("\n  problems:\n");
     for (const p of v.problems) process.stdout.write(`    ✗ ${p}\n`);
   } else {
-    process.stdout.write(`\n  try it: wt up ${repoName}\n`);
+    process.stdout.write(`\n  try it: wt up ${label}\n`);
   }
   process.stdout.write("\n");
 }
