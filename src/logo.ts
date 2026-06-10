@@ -1,24 +1,33 @@
 const GREEN = "\x1b[32m";
 const CYAN = "\x1b[36m";
 const BROWN = "\x1b[33m";
+const YELLOW = "\x1b[93m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-// Each row pairs a piece of the tree with a piece of the "wt" wordmark.
-// Tree is green, the wordmark cyan, the trunk brown.
-interface Row {
-  tree: string;
-  word: string;
+// A little hand-drawn pine (forest-art style) with a sun, next to the figlet
+// "wt" wordmark. Each row carries its own colored segments so we can paint the
+// sun yellow, foliage green, trunk brown, and the wordmark cyan.
+type Seg = [color: string, text: string];
+
+function row(...segs: Seg[]): Seg[] {
+  return segs;
 }
 
-const ROWS: Row[] = [
-  { tree: "    /\\    ", word: " _" },
-  { tree: "   /  \\   ", word: "__      _| |_" },
-  { tree: "  /    \\  ", word: "\\ \\ /\\ / / __|" },
-  { tree: " /      \\ ", word: "\\ V  V /| |_" },
-  { tree: "/________\\", word: " \\_/\\_/  \\__|" },
-  { tree: "    ||    ", word: "" },
-  { tree: "    ||    ", word: "" },
+const SUN = YELLOW;
+const FOLIAGE = GREEN;
+const TRUNK = BROWN;
+const WORD = CYAN;
+
+const ROWS: Seg[][] = [
+  row([SUN, "     \\ /"]),
+  row([SUN, "   -- () --"], [WORD, "      _"]),
+  row([FOLIAGE, "     .'."], [WORD, "       __      _| |_"]),
+  row([FOLIAGE, "    / . \\"], [WORD, "     \\ \\ /\\ / / __|"]),
+  row([FOLIAGE, "   / .'. \\"], [WORD, "    \\ V  V /| |_"]),
+  row([FOLIAGE, "  |.'  .'|"], [WORD, "     \\_/\\_/  \\__|"]),
+  row([FOLIAGE, "   '._.'"]),
+  row([TRUNK, "    |_|"]),
 ];
 
 const TAGLINE = "warm git worktrees, instantly  〜";
@@ -26,20 +35,14 @@ const TAGLINE = "warm git worktrees, instantly  〜";
 /** Render the wt logo. Colorized unless NO_COLOR is set or output isn't a TTY. */
 export function logo(): string {
   const color = useColor();
-  const g = color ? GREEN : "";
-  const c = color ? CYAN : "";
-  const b = color ? BROWN : "";
-  const d = color ? DIM : "";
-  const r = color ? RESET : "";
-
-  const lines = ROWS.map((row, i) => {
-    // The trunk rows (last two) use brown for the tree segment.
-    const treeColor = i >= ROWS.length - 2 ? b : g;
-    const word = row.word ? ` ${c}${row.word}${r}` : "";
-    return `  ${treeColor}${row.tree}${r}${word}`.replace(/\s+$/, "");
+  const lines = ROWS.map((segs) => {
+    const text = segs
+      .map(([col, txt]) => (color ? `${col}${txt}${RESET}` : txt))
+      .join("");
+    return `  ${text}`.replace(/\s+$/, "");
   });
-
-  return `\n${lines.join("\n")}\n\n  ${d}${TAGLINE}${r}\n`;
+  const tag = color ? `${DIM}${TAGLINE}${RESET}` : TAGLINE;
+  return `\n${lines.join("\n")}\n\n  ${tag}\n`;
 }
 
 function useColor(): boolean {
