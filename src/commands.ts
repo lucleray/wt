@@ -194,10 +194,21 @@ function statusLabel(status: string): string {
   }
 }
 
+/**
+ * Branch column. A worktree with a checked-out branch shows it. Otherwise it's
+ * detached at the base branch's commit, so show e.g. "main~" to convey "based
+ * on <base>, no branch yet".
+ */
+function branchLabel(w: { branch: string | null }, baseBranch: string): string {
+  if (w.branch) return w.branch;
+  return `${baseBranch}~`;
+}
+
 export async function cmdList(
   repoName: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
+  const config = loadConfig();
   const state = readState();
   // Include everything, even in-flight builds (pending placeholders).
   let wts = [...state.worktrees];
@@ -225,7 +236,7 @@ export async function cmdList(
     w.id.startsWith("pending-") ? "—" : w.id,
     w.repo,
     statusLabel(w.status),
-    w.branch ?? "(detached)",
+    branchLabel(w, config.repos[w.repo]?.baseBranch ?? "main"),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
     w.path || "(building)",
   ]);
