@@ -14,6 +14,14 @@ export function expandPath(p: string): string {
   return out;
 }
 
+/** Collapse the home dir prefix to ~ for display. */
+export function tildify(p: string): string {
+  const home = homedir();
+  if (p === home) return "~";
+  if (p.startsWith(home + "/")) return "~" + p.slice(home.length);
+  return p;
+}
+
 /** Strip // and /* *\/ comments from JSONC. Naive but fine for config files. */
 export function parseJsonc<T = unknown>(text: string): T {
   // Remove block comments, then line comments, being careful about strings.

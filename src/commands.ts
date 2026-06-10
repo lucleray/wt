@@ -16,7 +16,7 @@ import {
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
 import { reconcile } from "./reconcile.js";
-import { spawnDetached, humanAge } from "./util.js";
+import { spawnDetached, humanAge, tildify } from "./util.js";
 import { now } from "./time.js";
 
 export interface CmdOpts {
@@ -238,7 +238,7 @@ export async function cmdList(
     statusLabel(w.status),
     branchLabel(w, config.repos[w.repo]?.baseBranch ?? "main"),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
-    w.path || "(building)",
+    w.path ? tildify(w.path) : "(building)",
   ]);
   printTable(["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"], rows);
 }
