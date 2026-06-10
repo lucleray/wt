@@ -11,6 +11,7 @@ import {
   cmdTopup,
   type CmdOpts,
 } from "./commands.js";
+import { logo } from "./logo.js";
 
 const HELP = `wt — agent-first git worktree pool manager
 
@@ -34,7 +35,12 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
 
-  if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
+  if (!cmd) {
+    // Bare `wt`: show the logo then the help.
+    process.stdout.write(logo() + "\n" + HELP);
+    return;
+  }
+  if (cmd === "-h" || cmd === "--help" || cmd === "help") {
     process.stdout.write(HELP);
     return;
   }

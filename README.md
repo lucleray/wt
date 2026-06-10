@@ -1,5 +1,16 @@
 # wt
 
+```
+  ██     ██ ████████
+  ██     ██    ██
+  ██  █  ██    ██
+  ██ ███ ██    ██
+  ███████      ██
+   ███ ███     ██
+
+  warm git worktrees, instantly  〜
+```
+
 Agent-first git worktree pool manager. Spin up a ready-to-work copy of any
 configured repo **instantly** by handing out a pre-warmed git worktree from a
 pool.
