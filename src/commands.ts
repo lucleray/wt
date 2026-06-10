@@ -294,16 +294,40 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
     out(true, { configPath: configPath(), config, validations }, "");
     return;
   }
-  process.stdout.write(`config: ${configPath()}\n`);
-  process.stdout.write(`worktreeRoot: ${config.worktreeRoot}\n\n`);
-  for (const v of validations) {
-    const repo = config.repos[v.name];
-    const mark = v.ok ? "ok" : "PROBLEM";
-    process.stdout.write(
-      `[${mark}] ${v.name}\n  source: ${repo.source}\n  base: ${repo.baseBranch}  pool: ${repo.minPool}-${repo.maxPool}  setup: ${repo.setup ?? "(none)"}\n`,
-    );
-    for (const p of v.problems) process.stdout.write(`  - ${p}\n`);
+
+  // Header: where config + worktrees live.
+  process.stdout.write("\n");
+  process.stdout.write(`  config    ${tildify(configPath())}\n`);
+  process.stdout.write(`  worktrees ${tildify(config.worktreeRoot)}\n\n`);
+
+  // Repo table.
+  const repos = Object.entries(config.repos);
+  if (repos.length === 0) {
+    process.stdout.write("  no repos configured — see docs/config.md\n");
+    return;
   }
+  const ok = (name: string) => validations.find((v) => v.name === name)?.ok;
+  const rows = repos.map(([name, repo]) => [
+    ok(name) ? "✓" : "✗",
+    name,
+    repo.baseBranch,
+    `${repo.minPool}–${repo.maxPool}`,
+    repo.setup ?? "—",
+    tildify(repo.source),
+  ]);
+  printTable(["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"], rows, "  ");
+
+  // Any validation problems, called out below.
+  const broken = validations.filter((v) => !v.ok);
+  if (broken.length) {
+    process.stdout.write("\n  problems:\n");
+    for (const v of broken) {
+      for (const p of v.problems) {
+        process.stdout.write(`    ✗ ${v.name}: ${p}\n`);
+      }
+    }
+  }
+  process.stdout.write("\n");
 }
 
 // ---- internal: __topup ----
@@ -314,12 +338,16 @@ export async function cmdTopup(repoName: string): Promise<void> {
 
 // ---- table helper ----
 
-function printTable(header: string[], rows: string[][]): void {
+function printTable(
+  header: string[],
+  rows: string[][],
+  indent = "",
+): void {
   const widths = header.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const fmt = (cols: string[]) =>
-    cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+    indent + cols.map((c, i) => c.padEnd(widths[i])).join("  ").replace(/\s+$/, "");
   process.stdout.write(fmt(header) + "\n");
   for (const r of rows) process.stdout.write(fmt(r) + "\n");
 }
