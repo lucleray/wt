@@ -19,7 +19,6 @@ import {
 } from "./state.js";
 import {
   buildWorktree,
-  checkoutBranch,
   detach,
   pruneSource,
   worktreeExistsOnDisk,
@@ -67,7 +66,6 @@ function triggerTopup(source: string): void {
 
 export async function cmdUp(
   token: string,
-  branch: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
   let config = loadConfig();
@@ -132,16 +130,6 @@ export async function cmdUp(
     });
   }
 
-  // Optionally create a branch.
-  if (branch) {
-    checkoutBranch(claimed, branch);
-    await withState((state) => {
-      const w = findById(state, claimed!.id);
-      if (w) w.branch = branch;
-    });
-    claimed.branch = branch;
-  }
-
   // Top up the pool in the background.
   triggerTopup(repo.source);
 
@@ -159,12 +147,10 @@ export async function cmdUp(
       repo: repoLabel(repo),
       source: repo.source,
       path: claimed.path,
-      branch: claimed.branch,
       cold,
       warmedAt: claimed.warmedAt,
     },
-    `${claimed.path}${warmedNote}` +
-      (claimed.branch ? `\nbranch: ${claimed.branch}` : "\n(detached — create a branch with: git switch -c <name>)"),
+    `${claimed.path}${warmedNote}\n(detached — create a branch with: git switch -c <name>)`,
   );
 }
 

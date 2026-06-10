@@ -6,19 +6,21 @@ should use.
 A `<repo>` is a **path** (e.g. `~/w/vercel/api`) or a configured **alias**
 (e.g. `api`). Paths are first-class; aliases are an optional convenience.
 
-## `wt up <repo> [branch]`
+## `wt up <repo>`
 
-Get a ready worktree for `<repo>` and print its absolute path. If `branch` is
-given, a new branch is created and checked out in the worktree; otherwise the
-worktree stays detached at the base branch.
+Get a ready worktree for `<repo>` and print its absolute path. The worktree is
+detached at the base branch — create your own branch once you're in it
+(`git switch -c <name>`).
 
 ```sh
 wt up ~/w/vercel/api               # by path; sets it up on first use
 wt up api                          # by alias (once configured)
-wt up ~/w/vercel/api luc/feature   # creates + checks out luc/feature
 wt up ~/w/vercel/api --path-only   # print only the path (for cd "$(...)")
 wt up ~/w/vercel/api --skip-setup  # cold build without running the setup script
 wt up ~/w/vercel/api --json
+
+# typical: get a worktree, cd in, branch
+cd "$(wt up ~/w/vercel/api --path-only)" && git switch -c luc/feature
 ```
 
 Behavior:
@@ -104,7 +106,7 @@ wt config --json
 
 ```sh
 # agent is started in ~/w with no repo
-path="$(wt up front --path-only)"
+path="$(wt up ~/w/vercel/api --path-only)"
 cd "$path"
 git switch -c luc/my-feature
 # ...make changes, commit, push, open PR...

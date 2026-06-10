@@ -19,7 +19,7 @@ A <repo> is a path (e.g. ~/w/vercel/api) or a configured alias (e.g. api).
 The first time you 'up' an unconfigured path, wt offers to set it up.
 
 Usage:
-  wt up <repo> [branch]   Get a ready worktree (instant from pool)
+  wt up <repo>            Get a ready worktree (instant from pool)
   wt down [<id>]          Release a worktree back to the pool
   wt list [<repo>]        List all worktrees and their status (alias: ls)
   wt config               Print and validate config
@@ -100,8 +100,8 @@ async function main(): Promise<void> {
 
   switch (cmd) {
     case "up":
-      requireArg(positionals[0], "wt up <repo> [branch]");
-      await cmdUp(positionals[0], positionals[1], opts);
+      requireArg(positionals[0], "wt up <repo>");
+      await cmdUp(positionals[0], opts);
       break;
     case "down":
       await cmdDown(positionals[0], opts);

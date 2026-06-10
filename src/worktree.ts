@@ -98,11 +98,6 @@ function runSetup(repo: RepoConfig, cwd: string): void {
   }
 }
 
-/** Create + checkout a branch in a worktree (used by `up <repo> <branch>`). */
-export function checkoutBranch(wt: Worktree, branch: string): void {
-  runOrThrow("git", ["-C", wt.path, "switch", "-c", branch]);
-}
-
 /** Detach a worktree's HEAD (used on release). */
 export function detach(wt: Worktree): void {
   run("git", ["-C", wt.path, "checkout", "--detach"]);
