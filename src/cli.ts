@@ -7,6 +7,7 @@ import {
   cmdPrewarm,
   cmdGc,
   cmdConfig,
+  cmdConfigRepo,
   cmdTopup,
   type CmdOpts,
 } from "./commands.js";
@@ -19,6 +20,7 @@ Usage:
   wt down [<id>]          Release a worktree back to the pool
   wt list [<repo>]        List all worktrees and their status (alias: ls)
   wt config               Print and validate config
+  wt config <repo>        Add / edit a repo (interactive, or via flags below)
 
 Advanced:
   wt prewarm <repo>       Warm the pool to minPool
@@ -28,6 +30,16 @@ Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
   --skip-setup  (up) On a cold build, skip the repo's setup script
+
+config <repo> flags (non-interactive — for agents/scripts):
+  --source <path>     Path to the local git repo (required for new repos)
+  --base <branch>     Base branch (default: main)
+  --setup <cmd>       Setup command; auto-suggested from repo if omitted
+  --no-setup          Explicitly set no setup command
+  --min <n>           Min pool size (default: 1)
+  --max <n>           Max pool size (default: 5)
+  --yes               Skip prompts / accept defaults
+
   -h, --help    Show help
   -v, --version Show version
 `;
@@ -57,6 +69,13 @@ async function main(): Promise<void> {
       json: { type: "boolean" },
       "path-only": { type: "boolean" },
       "skip-setup": { type: "boolean" },
+      source: { type: "string" },
+      base: { type: "string" },
+      setup: { type: "string" },
+      "no-setup": { type: "boolean" },
+      min: { type: "string" },
+      max: { type: "string" },
+      yes: { type: "boolean" },
     },
   });
 
@@ -64,6 +83,13 @@ async function main(): Promise<void> {
     json: values.json as boolean | undefined,
     pathOnly: values["path-only"] as boolean | undefined,
     skipSetup: values["skip-setup"] as boolean | undefined,
+    source: values.source as string | undefined,
+    baseBranch: values.base as string | undefined,
+    setup: values.setup as string | undefined,
+    noSetup: values["no-setup"] as boolean | undefined,
+    minPool: values.min ? parseInt(values.min as string, 10) : undefined,
+    maxPool: values.max ? parseInt(values.max as string, 10) : undefined,
+    yes: values.yes as boolean | undefined,
   };
 
   switch (cmd) {
@@ -86,7 +112,8 @@ async function main(): Promise<void> {
       await cmdGc(opts);
       break;
     case "config":
-      await cmdConfig(opts);
+      if (positionals[0]) await cmdConfigRepo(positionals[0], opts);
+      else await cmdConfig(opts);
       break;
     case "__topup":
       // internal: background pool refill

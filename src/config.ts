@@ -1,6 +1,6 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { expandPath, parseJsonc, run } from "./util.js";
 
 export interface RepoConfig {
@@ -73,6 +73,49 @@ export function loadConfig(): Config {
     };
   }
   return { worktreeRoot, repos };
+}
+
+/** Read the raw (unexpanded) config, or an empty one if the file is absent. */
+export function readRawConfig(): RawConfig {
+  const path = configPath();
+  if (!existsSync(path)) return {};
+  return parseJsonc<RawConfig>(readFileSync(path, "utf8"));
+}
+
+export interface RepoConfigInput {
+  source: string;
+  baseBranch?: string;
+  setup?: string | null;
+  minPool?: number;
+  maxPool?: number;
+}
+
+/**
+ * Create or update a single repo entry and write the config back to disk as
+ * formatted JSON (comments in an existing file are not preserved). Paths are
+ * stored as given (so a `~/...` source stays `~/...`).
+ */
+export function writeRepoConfig(name: string, input: RepoConfigInput): void {
+  const raw = readRawConfig();
+  raw.repos ??= {};
+  const existing = raw.repos[name] ?? {};
+  const next: RawRepoConfig = { ...existing, source: input.source };
+  if (input.baseBranch !== undefined) next.baseBranch = input.baseBranch;
+  if (input.setup !== undefined) {
+    if (input.setup === null || input.setup === "") delete next.setup;
+    else next.setup = input.setup;
+  }
+  if (input.minPool !== undefined) next.minPool = input.minPool;
+  if (input.maxPool !== undefined) next.maxPool = input.maxPool;
+  // Migrate away from the legacy poolSize alias once min/max are set.
+  if (next.minPool !== undefined || next.maxPool !== undefined) {
+    delete next.poolSize;
+  }
+  raw.repos[name] = next;
+
+  const path = configPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(raw, null, 2) + "\n");
 }
 
 export function getRepo(config: Config, name: string): RepoConfig {

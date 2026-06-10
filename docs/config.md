@@ -3,6 +3,50 @@
 `wt` reads `~/.config/wt/config.jsonc` (JSONC — comments allowed). Override the
 path with `WT_CONFIG`.
 
+You can edit it by hand (see the shape below) or use `wt config <repo>` to add
+/ edit a single repo.
+
+## `wt config <repo>` — add or edit a repo
+
+Interactive (humans): run `wt config <repo>` in a terminal and answer the
+prompts. It auto-suggests a setup command based on the repo's files (e.g.
+`pnpm install` if it finds `pnpm-lock.yaml`).
+
+```sh
+wt config front
+```
+
+Non-interactive (agents / scripts): pass flags. When any flag is given (or
+there's no TTY, or `--yes`), prompts are skipped.
+
+```sh
+# Add a new repo (source is required for new repos; setup is auto-suggested)
+wt config front --source ~/w/vercel/front --yes
+
+# Override individual fields
+wt config front --setup 'pnpm install --frozen-lockfile' --max 8 --yes
+
+# No setup command
+wt config notes --source ~/w/notes --no-setup --yes
+```
+
+Flags:
+
+| Flag              | Meaning                                                  |
+| ----------------- | -------------------------------------------------------- |
+| `--source <path>` | Local git repo path (required for a new repo).           |
+| `--base <branch>` | Base branch (default: `main`).                           |
+| `--setup <cmd>`   | Setup command. If omitted on a new repo, it's suggested. |
+| `--no-setup`      | Explicitly set no setup command.                         |
+| `--min <n>`       | Min pool size (default: `1`).                            |
+| `--max <n>`       | Max pool size (default: `5`).                            |
+| `--yes`           | Skip prompts / accept defaults.                          |
+| `--json`          | Machine-readable result.                                 |
+
+Editing an existing repo only changes the fields you pass; the rest are kept.
+Writing the config reformats it as JSON, so hand-written comments are not
+preserved.
+
 ## Shape
 
 ```jsonc

@@ -1,4 +1,12 @@
-import { loadConfig, getRepo, validateRepo, configPath } from "./config.js";
+import {
+  loadConfig,
+  getRepo,
+  validateRepo,
+  configPath,
+  writeRepoConfig,
+  readRawConfig,
+} from "./config.js";
+import { suggestSetup } from "./suggest.js";
 import {
   withState,
   readState,
@@ -16,13 +24,28 @@ import {
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
 import { reconcile } from "./reconcile.js";
-import { spawnDetached, humanAge, tildify } from "./util.js";
+import {
+  spawnDetached,
+  humanAge,
+  tildify,
+  expandPath,
+  isInteractive,
+  prompt,
+} from "./util.js";
 import { now } from "./time.js";
 
 export interface CmdOpts {
   json?: boolean;
   pathOnly?: boolean;
   skipSetup?: boolean;
+  // `wt config <repo>` setters (non-interactive / agent mode):
+  source?: string;
+  baseBranch?: string;
+  setup?: string;
+  noSetup?: boolean;
+  minPool?: number;
+  maxPool?: number;
+  yes?: boolean;
 }
 
 function out(json: boolean | undefined, data: unknown, human: string): void {
@@ -326,6 +349,149 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
         process.stdout.write(`    ✗ ${v.name}: ${p}\n`);
       }
     }
+  }
+  process.stdout.write("\n");
+}
+
+// ---- config <repo> (add / edit a repo) ----
+
+const DEFAULT_MIN = 1;
+const DEFAULT_MAX = 5;
+const DEFAULT_BASE = "main";
+
+export async function cmdConfigRepo(
+  repoName: string,
+  opts: CmdOpts,
+): Promise<void> {
+  const raw = readRawConfig();
+  const existing = raw.repos?.[repoName];
+
+  // Resolve a source path: flag > existing > guess (~/w/vercel/<name>, etc).
+  const givenSource = opts.source ?? existing?.source;
+
+  const hasSetters =
+    opts.source !== undefined ||
+    opts.baseBranch !== undefined ||
+    opts.setup !== undefined ||
+    opts.noSetup ||
+    opts.minPool !== undefined ||
+    opts.maxPool !== undefined;
+
+  // Non-interactive when: --json, --yes, any setter provided, or no TTY.
+  // Agents hit this path by passing flags.
+  const interactive = isInteractive() && !opts.json && !opts.yes && !hasSetters;
+
+  if (!interactive) {
+    // ---- flag / agent mode ----
+    if (!givenSource) {
+      throw new Error(
+        `repo "${repoName}" has no source. Pass --source <path> (e.g. wt config ${repoName} --source ~/w/vercel/${repoName}).`,
+      );
+    }
+    const source = givenSource;
+    const sourceAbs = expandPath(source);
+    const sug = suggestSetup(sourceAbs);
+    const setup = opts.noSetup
+      ? null
+      : opts.setup !== undefined
+        ? opts.setup
+        : existing?.setup !== undefined
+          ? existing.setup
+          : (sug.setup ?? undefined);
+    const input = {
+      source,
+      baseBranch:
+        opts.baseBranch ?? existing?.baseBranch ?? DEFAULT_BASE,
+      setup: setup as string | null | undefined,
+      minPool: opts.minPool ?? existing?.minPool ?? existing?.poolSize ?? DEFAULT_MIN,
+      maxPool: opts.maxPool ?? existing?.maxPool ?? existing?.poolSize ?? DEFAULT_MAX,
+    };
+    writeRepoConfig(repoName, input);
+    finishConfigRepo(repoName, opts);
+    return;
+  }
+
+  // ---- interactive mode ----
+  process.stdout.write(
+    `\nConfiguring repo "${repoName}" — press enter to accept defaults.\n\n`,
+  );
+
+  const defaultSource =
+    givenSource ?? `~/w/vercel/${repoName}`;
+  const source = await prompt("source path", defaultSource);
+  const sourceAbs = expandPath(source);
+
+  const baseBranch = await prompt(
+    "base branch",
+    existing?.baseBranch ?? DEFAULT_BASE,
+  );
+
+  const sug = suggestSetup(sourceAbs);
+  const setupDefault =
+    existing?.setup ?? (sug.setup ?? "");
+  if (sug.setup && !existing?.setup) {
+    process.stdout.write(`  (detected ${sug.reason} → suggesting "${sug.setup}")\n`);
+  }
+  const setupAns = await prompt(
+    "setup command (blank for none)",
+    setupDefault,
+  );
+
+  const minAns = await prompt(
+    "min pool",
+    String(existing?.minPool ?? existing?.poolSize ?? DEFAULT_MIN),
+  );
+  const maxAns = await prompt(
+    "max pool",
+    String(existing?.maxPool ?? existing?.poolSize ?? DEFAULT_MAX),
+  );
+
+  writeRepoConfig(repoName, {
+    source,
+    baseBranch,
+    setup: setupAns === "" ? null : setupAns,
+    minPool: parseIntOr(minAns, DEFAULT_MIN),
+    maxPool: parseIntOr(maxAns, DEFAULT_MAX),
+  });
+  finishConfigRepo(repoName, opts);
+}
+
+function parseIntOr(s: string, fallback: number): number {
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Re-load, validate the just-written repo, and report the result. */
+function finishConfigRepo(repoName: string, opts: CmdOpts): void {
+  const config = loadConfig();
+  const repo = getRepo(config, repoName);
+  const v = validateRepo(repoName, repo);
+
+  if (opts.json) {
+    out(true, { repo: repoName, config: repo, validation: v }, "");
+    return;
+  }
+  process.stdout.write("\n");
+  process.stdout.write(`  saved "${repoName}" to ${tildify(configPath())}\n\n`);
+  printTable(
+    ["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"],
+    [
+      [
+        v.ok ? "✓" : "✗",
+        repoName,
+        repo.baseBranch,
+        `${repo.minPool}–${repo.maxPool}`,
+        repo.setup ?? "—",
+        tildify(repo.source),
+      ],
+    ],
+    "  ",
+  );
+  if (!v.ok) {
+    process.stdout.write("\n  problems:\n");
+    for (const p of v.problems) process.stdout.write(`    ✗ ${p}\n`);
+  } else {
+    process.stdout.write(`\n  try it: wt up ${repoName}\n`);
   }
   process.stdout.write("\n");
 }

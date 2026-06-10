@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
+import { createInterface } from "node:readline";
 
 /** Expand ~ and $VARS in a path-like string. */
 export function expandPath(p: string): string {
@@ -147,4 +148,27 @@ export function humanAge(epochSeconds: number): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** Whether we can run an interactive prompt (stdin + stdout are a TTY). */
+export function isInteractive(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/**
+ * Prompt for a line of input with an optional default (shown in brackets).
+ * Returns the trimmed answer, or the default if the user just hits enter.
+ */
+export async function prompt(question: string, def = ""): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const suffix = def ? ` [${def}]` : "";
+  try {
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(`${question}${suffix}: `, resolve);
+    });
+    const trimmed = answer.trim();
+    return trimmed || def;
+  } finally {
+    rl.close();
+  }
 }

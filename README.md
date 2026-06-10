@@ -93,6 +93,7 @@ in the worktree, so whatever those need must be available too.
 | `wt down [<id>]`         | Release a worktree back to the pool (defaults to the cwd's).      |
 | `wt list [<repo>]`       | List all worktrees and their status (alias: `wt ls`).             |
 | `wt config`              | Print and validate the config (incl. pool bounds).                |
+| `wt config <repo>`       | Add / edit a repo (interactive, or via flags for agents).         |
 
 ### Advanced
 
