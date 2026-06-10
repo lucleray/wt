@@ -8,11 +8,10 @@ const HEIGHT = 11;
 const TAGLINE = "warm git worktrees, instantly  〜";
 
 // A layered pine, 4 rows tall, drawn relative to its tip column:
-//    /\
-//   //\\
-//  ///\\\
-//    ||
-const PINE: { dx: number; ch: string }[][] = [
+type PineRow = { dx: number; ch: string }[];
+
+// Big pine (4 rows tall):   /\  //\\  ///\\\  ||
+const BIG: PineRow[] = [
   [{ dx: 0, ch: "/" }, { dx: 1, ch: "\\" }],
   [{ dx: -1, ch: "/" }, { dx: 0, ch: "/" }, { dx: 1, ch: "\\" }, { dx: 2, ch: "\\" }],
   [
@@ -22,14 +21,43 @@ const PINE: { dx: number; ch: string }[][] = [
   [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
 ];
 
-// Tips placed as [row, col] of the pine apex. Staggered, spaced apart, and kept
-// clear of the centre (cols ~24-36) where the wordmark goes. Pines span 4 cols
-// left and 3 right of the tip, so keep tips within [3, WIDTH-4].
-const TIPS: [number, number][] = [
-  [0, 6], [0, 18], [0, 42], [0, 54],
-  [3, 11], [3, 48],
-  [6, 5], [6, 17], [6, 43], [6, 55],
+// Small pine (3 rows tall):  /\  //\\  ||
+const SMALL: PineRow[] = [
+  [{ dx: 0, ch: "/" }, { dx: 1, ch: "\\" }],
+  [{ dx: -1, ch: "/" }, { dx: 0, ch: "/" }, { dx: 1, ch: "\\" }, { dx: 2, ch: "\\" }],
+  [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
 ];
+
+// Tiny pine (2 rows tall):  /\  ||
+const TINY: PineRow[] = [
+  [{ dx: 0, ch: "/" }, { dx: 1, ch: "\\" }],
+  [{ dx: 0, ch: "|" }, { dx: 1, ch: "|" }],
+];
+
+// Each pine: [row, col, size]. Placed asymmetrically (left and right differ),
+// staggered, spaced apart, and kept clear of the centre-right where the
+// wordmark goes.
+type Size = "big" | "small" | "tiny";
+const PINES: [number, number, Size][] = [
+  // left cluster — varied heights, irregular spacing
+  [0, 5, "big"],
+  [2, 14, "small"],
+  [0, 21, "tiny"],
+  [5, 4, "big"],
+  [5, 13, "tiny"],
+  [6, 21, "small"],
+  // right cluster — different rhythm than the left
+  [1, 40, "small"],
+  [0, 47, "big"],
+  [3, 54, "tiny"],
+  [5, 39, "tiny"],
+  [4, 47, "small"],
+  [6, 55, "big"],
+];
+
+function pineFor(size: Size): PineRow[] {
+  return size === "big" ? BIG : size === "small" ? SMALL : TINY;
+}
 
 const WORD = [
   "█   █ ███",
@@ -45,8 +73,8 @@ function compose(): Cell[][] {
   );
 
   // Plant pines.
-  for (const [ty, tx] of TIPS) {
-    PINE.forEach((rowCells, r) => {
+  for (const [ty, tx, size] of PINES) {
+    pineFor(size).forEach((rowCells, r) => {
       const y = ty + r;
       if (y < 0 || y >= HEIGHT) return;
       for (const { dx, ch } of rowCells) {
@@ -57,9 +85,10 @@ function compose(): Cell[][] {
     });
   }
 
-  // Stamp the wordmark centred, clearing a margin around it first.
+  // Stamp the wordmark, shifted a few cols right of centre, clearing a margin
+  // around it first.
   const wordW = Math.max(...WORD.map((l) => l.length));
-  const startX = Math.floor((WIDTH - wordW) / 2);
+  const startX = Math.floor((WIDTH - wordW) / 2) + 3;
   const startY = Math.floor((HEIGHT - WORD.length) / 2);
   for (let i = -1; i <= WORD.length; i++) {
     for (let j = -2; j <= wordW + 1; j++) {
