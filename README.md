@@ -57,14 +57,6 @@ worktree when done. Install it into your agent:
 npx skills add lucleray/wt
 ```
 
-Or drop the `SKILL.md` into your agent's skills dir manually:
-
-```sh
-mkdir -p ~/.config/opencode/skills/wt   # or ~/.claude/skills/wt
-curl -fsSL https://raw.githubusercontent.com/lucleray/wt/main/skills/wt/SKILL.md \
-  -o ~/.config/opencode/skills/wt/SKILL.md
-```
-
 ---
 
 ## Commands
