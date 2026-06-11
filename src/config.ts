@@ -18,7 +18,7 @@ export interface RepoConfig {
 
 export interface Config {
   worktreeRoot: string;
-  /** Keyed by source path (as written in the file, e.g. "~/w/vercel/api"). */
+  /** Keyed by source path (as written in the file, e.g. "~/code/acme-app"). */
   repos: Record<string, RepoConfig>;
 }
 
@@ -41,7 +41,7 @@ interface RawConfig {
 
 export function configDir(): string {
   if (process.env.WT_CONFIG_DIR) return expandPath(process.env.WT_CONFIG_DIR);
-  return join(homedir(), ".config", "wt");
+  return join(homedir(), ".wt");
 }
 
 export function configPath(): string {
@@ -51,15 +51,16 @@ export function configPath(): string {
 
 export function loadConfig(): Config {
   const path = configPath();
+  // A missing config file is not an error: a fresh install simply has no repos
+  // configured yet. Treat it as an empty config so `wt up <path>` can bootstrap
+  // it (auto-register) and read-only commands like `list` / `config` behave
+  // sanely instead of failing.
   if (!existsSync(path)) {
-    throw new Error(
-      `no config found at ${path}\n` +
-        `create one — see docs/config.md or run with WT_CONFIG set.`,
-    );
+    return { worktreeRoot: expandPath(join(configDir(), "worktrees")), repos: {} };
   }
   const raw = parseJsonc<RawConfig>(readFileSync(path, "utf8"));
   const worktreeRoot = expandPath(
-    raw.worktreeRoot ?? join(homedir(), "w", "worktrees"),
+    raw.worktreeRoot ?? join(configDir(), "worktrees"),
   );
   const repos: Record<string, RepoConfig> = {};
   for (const [key, r] of Object.entries(raw.repos ?? {})) {
@@ -93,7 +94,7 @@ export function readRawConfig(): RawConfig {
 }
 
 export interface RepoConfigInput {
-  /** Source path — the config key (stored as given, e.g. "~/w/vercel/api"). */
+  /** Source path — the config key (stored as given, e.g. "~/code/acme-app"). */
   source: string;
   name?: string | null;
   baseBranch?: string;
