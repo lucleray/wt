@@ -148,30 +148,22 @@ A worktree record:
 
 ## Crash recovery
 
-If the machine shuts down (or a worker is killed) mid-operation, work can be
-left half-done: a stuck transitional record, a half-built worktree dir, or a
-git-registered worktree wt's state never recorded. A **reconcile pass** cleans
-all of this up. It runs automatically at the start of `wt up`.
+`wt` never auto-deletes worktrees. There is intentionally **no reconcile/GC
+pass** — a worktree you were handed is yours until you explicitly `wt down` it,
+even across reboots or after the session that created it has exited. This is a
+deliberate safety choice: it's common to close the program that started a
+worktree and reopen a new session on it later, so a dead owner process must
+**never** be treated as a signal to reclaim or destroy work.
 
-Reconcile does three things:
+Consequences:
 
-1. **Stale transitional records.** A record in `building` / `resetting` /
-   `destroying` is considered crashed if its `workerPid` is no longer alive, or
-   (as a fallback for missing pids) if it has sat in that state longer than a
-   generous threshold. Stale records are removed along with any dir they left
-   behind. A transitional record whose worker is **still alive** is always left
-   untouched — its dir may not exist yet because the build is still running.
+- A worktree left `attached` after a reboot stays `attached`. Release it with
+  `wt down <id>` when you're actually done; the pool tops up around it.
+- A build that crashed mid-flight may leave a stuck transitional record or a
+  half-built dir. These are not cleaned automatically; remove them by hand if
+  needed (`git worktree remove`).
 
-2. **Vanished dirs.** Settled records (`ready` / `attached` / `needs-resetup`)
-   whose worktree dir no longer exists on disk are dropped.
-
-3. **Orphan worktrees.** Worktrees git knows about that live inside the managed
-   `worktreeRoot/<repo>/` tree but have no backing state record (e.g. a build
-   that created the worktree, then crashed before recording it) are force
-   removed. The sweep is scoped strictly to the pool dir, so unrelated
-   worktrees are never touched.
-
-Two properties make this safe:
+Two properties keep the pool safe regardless:
 
 - **`ready` is the only health signal.** A worktree only reaches `ready` after
   its setup script fully succeeds, so a half-installed worktree is never handed

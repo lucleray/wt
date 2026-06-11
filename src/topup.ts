@@ -13,7 +13,6 @@ import {
   removeWorktreeDir,
 } from "./worktree.js";
 import { resolveRepo } from "./repo.js";
-import { reconcile } from "./reconcile.js";
 import { now } from "./time.js";
 
 /**
@@ -48,9 +47,6 @@ async function topupRepoLocked(
   repo: RepoConfig,
   slug: string,
 ): Promise<void> {
-  // Clean up anything left over from a crashed run before topping up.
-  await reconcile(config);
-
   for (;;) {
     // Decide the next action under the lock, then do slow work outside it.
     const action = await withState((state): TopupAction => {

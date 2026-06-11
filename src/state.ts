@@ -22,16 +22,6 @@ export type WorktreeStatus =
   | "destroying"; // git worktree remove running
 
 /** States where a worker process is mid-operation and a crash leaves junk. */
-export const TRANSITIONAL: WorktreeStatus[] = [
-  "building",
-  "resetting",
-  "destroying",
-];
-
-export function isTransitional(status: WorktreeStatus): boolean {
-  return TRANSITIONAL.includes(status);
-}
-
 export interface Worktree {
   id: string;
   repo: string;
