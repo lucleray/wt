@@ -34,6 +34,7 @@ Agent-first git worktree pool manager. Get a ready-to-work copy of any repo
 
 ```sh
 npm install -g @lucleray/wt   # exposes the `wt` command
+npx skills add lucleray/wt    # optional: teach your AI agent to use it
 ```
 
 ## Use
@@ -42,19 +43,6 @@ npm install -g @lucleray/wt   # exposes the `wt` command
 cd "$(wt up ~/code/acme-app --path-only)"   # warm worktree, ready to go
 git switch -c my-feature                    # ...work, commit, push, open a PR...
 wt down                                      # release it back to the pool
-```
-
-That's it. The first `wt up <path>` bootstraps config automatically; later you
-can use a short alias (`wt up app`). Requires Node 20+ and `git`.
-
-## Use with AI agents
-
-`wt` ships an agent **skill** so coding agents (Claude Code, OpenCode, Cursor,
-Codex, …) know when and how to use it — start work on a repo, then release the
-worktree when done. Install it into your agent:
-
-```sh
-npx skills add lucleray/wt
 ```
 
 ---
