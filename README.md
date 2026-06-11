@@ -16,6 +16,9 @@
 Agent-first git worktree pool manager. Get a ready-to-work copy of any repo
 **instantly** by handing out a pre-warmed git worktree from a pool.
 
+[![npm](https://img.shields.io/npm/v/@lucleray/wt)](https://www.npmjs.com/package/@lucleray/wt)
+[![skills.sh](https://skills.sh/b/lucleray/wt)](https://skills.sh/lucleray/wt)
+
 ## Why
 
 - **Instant.** Checkout + `pnpm install` is pre-paid in the background, so
@@ -43,6 +46,24 @@ wt down                                      # release it back to the pool
 
 That's it. The first `wt up <path>` bootstraps config automatically; later you
 can use a short alias (`wt up app`). Requires Node 20+ and `git`.
+
+## Use with AI agents
+
+`wt` ships an agent **skill** so coding agents (Claude Code, OpenCode, Cursor,
+Codex, …) know when and how to use it — start work on a repo, then release the
+worktree when done. Install it into your agent:
+
+```sh
+npx skills add lucleray/wt
+```
+
+Or drop the `SKILL.md` into your agent's skills dir manually:
+
+```sh
+mkdir -p ~/.config/opencode/skills/wt   # or ~/.claude/skills/wt
+curl -fsSL https://raw.githubusercontent.com/lucleray/wt/main/skills/wt/SKILL.md \
+  -o ~/.config/opencode/skills/wt/SKILL.md
+```
 
 ---
 
