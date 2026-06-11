@@ -3,8 +3,8 @@
 All commands accept `--json` for machine-readable output, which is what agents
 should use.
 
-A `<repo>` is a **path** (e.g. `~/w/vercel/api`) or a configured **alias**
-(e.g. `api`). Paths are first-class; aliases are an optional convenience.
+A `<repo>` is a **path** (e.g. `~/code/acme-app`) or a configured **alias**
+(e.g. `app`). Paths are first-class; aliases are an optional convenience.
 
 ## `wt up <repo>`
 
@@ -13,14 +13,14 @@ detached at the base branch — create your own branch once you're in it
 (`git switch -c <name>`).
 
 ```sh
-wt up ~/w/vercel/api               # by path; sets it up on first use
-wt up api                          # by alias (once configured)
-wt up ~/w/vercel/api --path-only   # print only the path (for cd "$(...)")
-wt up ~/w/vercel/api --skip-setup  # cold build without running the setup script
-wt up ~/w/vercel/api --json
+wt up ~/code/acme-app               # by path; sets it up on first use
+wt up app                           # by alias (once configured)
+wt up ~/code/acme-app --path-only   # print only the path (for cd "$(...)")
+wt up ~/code/acme-app --skip-setup  # cold build without running the setup script
+wt up ~/code/acme-app --json
 
 # typical: get a worktree, cd in, branch
-cd "$(wt up ~/w/vercel/api --path-only)" && git switch -c luc/feature
+cd "$(wt up ~/code/acme-app --path-only)" && git switch -c feature/login
 ```
 
 Behavior:
@@ -68,7 +68,7 @@ in-flight builds (shown as `setting up`). Status values:
 
 ```sh
 wt list
-wt list front
+wt list app
 wt ls
 wt list --json
 ```
@@ -81,16 +81,7 @@ Warm the pool until it reaches the repo's `minPool` ready worktrees. Runs in
 the foreground so you see progress and any setup errors.
 
 ```sh
-wt prewarm front
-```
-
-## `wt gc`
-
-Prune worktrees that have been removed on disk or are otherwise stale, and run
-`git worktree prune` on each source repo.
-
-```sh
-wt gc
+wt prewarm app
 ```
 
 ## `wt config`
@@ -105,10 +96,10 @@ wt config --json
 ## Typical agent flow
 
 ```sh
-# agent is started in ~/w with no repo
-path="$(wt up ~/w/vercel/api --path-only)"
+# agent is started in ~ with no repo
+path="$(wt up ~/code/acme-app --path-only)"
 cd "$path"
-git switch -c luc/my-feature
+git switch -c feature/my-feature
 # ...make changes, commit, push, open PR...
 wt down
 ```

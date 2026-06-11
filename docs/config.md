@@ -4,19 +4,19 @@ Repos are identified by their **path**. You usually don't touch the config file
 directly — just `wt up <path>` and `wt` sets the repo up on first use. To
 configure ahead of time or tweak settings, use `wt config <repo>`.
 
-`wt` stores config in `~/.config/wt/config.jsonc` (JSONC — comments allowed).
+`wt` stores config in `~/.wt/config.jsonc` (JSONC — comments allowed).
 Override the path with `WT_CONFIG`.
 
 ## `wt config <repo>` — add or edit a repo
 
-`<repo>` is a path (e.g. `~/w/vercel/api`) or an existing alias.
+`<repo>` is a path (e.g. `~/code/acme-app`) or an existing alias.
 
 Interactive (humans): run it in a terminal and answer the prompts. It
 auto-suggests a setup command from the repo's files (e.g. `pnpm install` if it
 finds `pnpm-lock.yaml`) and lets you set an optional alias name.
 
 ```sh
-wt config ~/w/vercel/api
+wt config ~/code/acme-app
 ```
 
 Non-interactive (agents / scripts): pass flags. When any flag is given (or
@@ -24,13 +24,13 @@ there's no TTY, or `--yes`), prompts are skipped.
 
 ```sh
 # Add a repo (setup auto-suggested)
-wt config ~/w/vercel/api --yes
+wt config ~/code/acme-app --yes
 
 # Give it an alias + override fields
-wt config ~/w/vercel/api --name api --setup 'pnpm install --frozen-lockfile' --max 8 --yes
+wt config ~/code/acme-app --name app --setup 'pnpm install --frozen-lockfile' --max 8 --yes
 
 # No setup command
-wt config ~/w/notes --no-setup --yes
+wt config ~/code/notes --no-setup --yes
 ```
 
 Flags:
@@ -58,14 +58,14 @@ nice-to-have alias.
 
 ```jsonc
 {
-  // Where pooled worktrees are created. Default: ~/w/worktrees
-  "worktreeRoot": "~/w/worktrees",
+  // Where pooled worktrees are created. Default: ~/.wt/worktrees
+  "worktreeRoot": "~/.wt/worktrees",
 
   "repos": {
     // key = the repo's source path (this IS the identity)
-    "~/w/vercel/api": {
-      // Optional short alias, so you can `wt up api`.
-      "name": "api",
+    "~/code/acme-app": {
+      // Optional short alias, so you can `wt up app`.
+      "name": "app",
 
       // Base branch worktrees are warmed at. Default: "main".
       "baseBranch": "main",
@@ -117,7 +117,7 @@ The repo entry is keyed by `<path>` (the source). Fields on each entry:
 
 | Field                     | Required | Default         | Description                                            |
 | ------------------------- | -------- | --------------- | ------------------------------------------------------ |
-| `worktreeRoot`            | no       | `~/w/worktrees` | Root dir for all pooled worktrees.                     |
+| `worktreeRoot`            | no       | `~/.wt/worktrees` | Root dir for all pooled worktrees.                   |
 | `repos.<path>.name`       | no       | —               | Optional alias you can pass instead of the path.       |
 | `repos.<path>.baseBranch` | no       | `main`          | Branch to warm worktrees at.                           |
 | `repos.<path>.setup`      | no       | (none)          | Shell command run in each worktree after checkout.     |
@@ -146,8 +146,8 @@ wt config --json   # machine-readable
 ```jsonc
 {
   "repos": {
-    "front": {
-      "source": "~/w/vercel/front",
+    "website": {
+      "source": "~/code/website",
       "baseBranch": "main",
       "setup": "pnpm install",
       "poolSize": 2
@@ -161,9 +161,9 @@ wt config --json   # machine-readable
 ```jsonc
 {
   "repos": {
-    "front": { "source": "~/w/vercel/front", "setup": "pnpm install", "poolSize": 2 },
-    "api":   { "source": "~/w/vercel/api",   "setup": "pnpm install", "poolSize": 1 },
-    "infra": { "source": "~/w/vercel/infra", "setup": "terraform init", "poolSize": 1 }
+    "website": { "source": "~/code/website",    "setup": "pnpm install",   "poolSize": 2 },
+    "api":     { "source": "~/code/api-server", "setup": "pnpm install",   "poolSize": 1 },
+    "infra":   { "source": "~/code/infra",      "setup": "terraform init", "poolSize": 1 }
   }
 }
 ```
@@ -173,7 +173,7 @@ wt config --json   # machine-readable
 ```jsonc
 {
   "repos": {
-    "notes": { "source": "~/w/notes" }
+    "notes": { "source": "~/code/notes" }
   }
 }
 ```

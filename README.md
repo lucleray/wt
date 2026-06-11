@@ -18,15 +18,15 @@ configured repo **instantly** by handing out a pre-warmed git worktree from a
 pool.
 
 ```sh
-wt up ~/w/vercel/api      # first time: offers to set it up, then hands you a worktree
-cd "$(wt up ~/w/vercel/api --path-only)"
+wt up ~/code/acme-app      # first time: offers to set it up, then hands you a worktree
+cd "$(wt up ~/code/acme-app --path-only)"
 # ...work, commit, open a PR...
 wt down                   # release the worktree back to the pool
 ```
 
 A repo is identified by its **path**. The first time you `up` an unconfigured
 path, `wt` sets it up (auto-detecting a setup command like `pnpm install`). You
-can also give a repo a short **alias** and use that instead (`wt up api`).
+can also give a repo a short **alias** and use that instead (`wt up app`).
 
 The slow part of starting work in a big repo — checking out and running
 `pnpm install` (or whatever your setup is) — is **pre-paid in the background**.
@@ -58,17 +58,20 @@ pnpm link --global   # exposes the `wt` command
 Requires Node 20+ and `git`. Per-repo setup scripts (e.g. `pnpm install`) run
 in the worktree, so whatever those need must be available too.
 
+No config file is needed to start — the first `wt up <path>` bootstraps it for
+you (creating `~/.wt/config.jsonc` and registering the repo automatically).
+
 ## Quick start
 
 Just point `wt` at a repo path — it sets it up on first use:
 
 ```sh
-wt up ~/w/vercel/api
+wt up ~/code/acme-app
 ```
 
-That detects the repo, suggests a setup command, registers it, and hands you a
-worktree. To pre-warm without working yet, or to tune settings, use
-`wt config ~/w/vercel/api` (see [docs/config.md](docs/config.md)). The config is
+That detects the repo, suggests a setup command, registers it (writing
+`~/.wt/config.jsonc` on first run), and hands you a worktree. To pre-warm without working yet, or to tune settings, use
+`wt config ~/code/acme-app` (see [docs/config.md](docs/config.md)). The config is
 keyed by repo path; an optional `name` gives you a short alias.
 
 ## Commands
@@ -86,7 +89,6 @@ keyed by repo path; an optional `name` gives you a short alias.
 | Command                  | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `wt prewarm <repo>`      | Warm the pool to `minPool` ready worktrees.                       |
-| `wt gc`                  | Prune stale/removed worktrees.                                    |
 
 All commands accept `--json` for machine-readable output. `wt up` also accepts
 `--path-only` (print just the path) and `--skip-setup` (on a cold build, skip

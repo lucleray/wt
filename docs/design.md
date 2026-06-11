@@ -6,13 +6,13 @@ ready-to-work environment is instant.
 ## Mental model
 
 ```
-~/w  (agent starts here, no repo)
-  │  "work on a PR in front"
+~  (agent starts here, no repo)
+  │  "work on a PR in acme-app"
   ▼
-wt up front ──► pop a READY worktree from the pool ──► print its path (instant)
-  │                                                     └─ background: top up pool
+wt up app ──► pop a READY worktree from the pool ──► print its path (instant)
+  │                                                   └─ background: top up pool
   ▼
-work in ~/w/worktrees/front/wt-ab12  (deps already installed)
+work in ~/.wt/worktrees/acme-app/wt-ab12  (deps already installed)
   │  done
   ▼
 wt down ──► return the worktree to the pool (reused, reset lazily)
@@ -116,8 +116,8 @@ lock (`git-<repo>`) so concurrent builds don't race.
 
 ## State
 
-State lives in `~/.config/wt/state.json`, guarded by a lockfile
-(`~/.config/wt/state.json.lock`). Every mutating command:
+State lives in `~/.wt/state.json`, guarded by a lockfile
+(`~/.wt/state.json.lock`). Every mutating command:
 
 1. acquires the lock
 2. reads state
@@ -133,8 +133,8 @@ A worktree record:
 ```jsonc
 {
   "id": "ab12",
-  "repo": "front",
-  "path": "/Users/you/w/worktrees/front/wt-ab12",
+  "repo": "acme-app",
+  "path": "/Users/you/.wt/worktrees/acme-app/wt-ab12",
   "status": "ready",        // ready | attached | needs-resetup | building | resetting | destroying
   "branch": null,           // branch name if attached with one, else null (detached)
   "owner": null,            // cwd/session that holds it when attached
@@ -151,7 +151,7 @@ A worktree record:
 If the machine shuts down (or a worker is killed) mid-operation, work can be
 left half-done: a stuck transitional record, a half-built worktree dir, or a
 git-registered worktree wt's state never recorded. A **reconcile pass** cleans
-all of this up. It runs automatically at the start of `wt up` and `wt gc`.
+all of this up. It runs automatically at the start of `wt up`.
 
 Reconcile does three things:
 
@@ -189,14 +189,14 @@ not pnpm-specific, so any repo/toolchain works.
 ## Layout
 
 ```
-~/.config/wt/config.jsonc        # user-edited config
-~/.config/wt/state.json          # tool-managed pool state
-~/.config/wt/state.json.lock     # lockfile
-~/w/worktrees/<repo>/wt-<id>/    # the pooled worktrees
+~/.wt/config.jsonc            # user-edited config
+~/.wt/state.json              # tool-managed pool state
+~/.wt/state.json.lock         # lockfile
+~/.wt/worktrees/<repo>/wt-<id>/   # the pooled worktrees
 ```
 
 ## Non-goals (v1)
 
 - No daemon / always-on freshness.
-- No automatic migration of existing manual copies (e.g. `front2`, `front3`).
+- No automatic migration of existing manual copies (e.g. `acme-app2`, `acme-app3`).
 - No remote/sandbox worktrees — local only.
