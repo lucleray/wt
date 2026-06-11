@@ -5,7 +5,6 @@ import {
   cmdDown,
   cmdList,
   cmdPrewarm,
-  cmdGc,
   cmdConfig,
   cmdConfigRepo,
   cmdTopup,
@@ -15,7 +14,7 @@ import { logo } from "./logo.js";
 
 const HELP = `wt — agent-first git worktree pool manager
 
-A <repo> is a path (e.g. ~/w/vercel/api) or a configured alias (e.g. api).
+A <repo> is a path (e.g. ~/code/acme-app) or a configured alias (e.g. app).
 The first time you 'up' an unconfigured path, wt offers to set it up.
 
 Usage:
@@ -27,7 +26,6 @@ Usage:
 
 Advanced:
   wt prewarm <repo>       Warm the pool to minPool
-  wt gc                   Prune stale/removed worktrees
 
 Options:
   --json        Machine-readable output
@@ -113,9 +111,6 @@ async function main(): Promise<void> {
     case "prewarm":
       requireArg(positionals[0], "wt prewarm <repo>");
       await cmdPrewarm(positionals[0], opts);
-      break;
-    case "gc":
-      await cmdGc(opts);
       break;
     case "config":
       if (positionals[0]) await cmdConfigRepo(positionals[0], opts);

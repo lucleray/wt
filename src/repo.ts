@@ -41,7 +41,7 @@ function realish(p: string): string {
 
 /**
  * Filesystem + lock slug for a repo, derived purely from its absolute source
- * path so it's stable and collision-proof: e.g. ~/w/vercel/api -> "api-3f9c".
+ * path so it's stable and collision-proof: e.g. ~/code/acme-app -> "acme-app-3f9c".
  */
 export function repoSlug(source: string): string {
   const abs = realish(expandPath(source));
@@ -93,7 +93,7 @@ export function resolveRepo(config: Config, token: string): ResolvedRepo {
     .map((r) => r.name ?? basename(r.source))
     .join(", ");
   throw new Error(
-    `unknown repo "${token}". Pass a path (e.g. wt up ~/w/vercel/${token}) or use a configured alias.${
+    `unknown repo "${token}". Pass a path (e.g. wt up ~/code/${token}) or use a configured alias.${
       known ? ` Known: ${known}` : ""
     }`,
   );

@@ -131,6 +131,28 @@ export function worktreeExistsOnDisk(wt: Worktree): boolean {
   return existsSync(wt.path);
 }
 
+export interface HeadInfo {
+  /** Checked-out branch name, or null if HEAD is detached. */
+  branch: string | null;
+  /** Short commit HEAD points at, or null if it can't be read. */
+  commit: string | null;
+}
+
+/**
+ * Read a worktree's *live* git HEAD straight from disk, so we never trust the
+ * possibly-stale `branch` recorded in state (the user may have run
+ * `git switch -c` after we handed the worktree out). Returns the checked-out
+ * branch (if any) and the short commit.
+ */
+export function headInfo(path: string): HeadInfo {
+  if (!path || !existsSync(path)) return { branch: null, commit: null };
+  const sym = run("git", ["-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const branch = sym.code === 0 ? sym.stdout.trim() || null : null;
+  const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
+  const commit = rev.code === 0 ? rev.stdout.trim() || null : null;
+  return { branch, commit };
+}
+
 /**
  * List the absolute paths of worktrees git knows about for a source repo,
  * excluding the main worktree itself.

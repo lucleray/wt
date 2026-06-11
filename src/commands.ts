@@ -20,8 +20,9 @@ import {
 import {
   buildWorktree,
   detach,
-  pruneSource,
   worktreeExistsOnDisk,
+  headInfo,
+  type HeadInfo,
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
 import { reconcile } from "./reconcile.js";
@@ -254,13 +255,15 @@ function statusLabel(status: string): string {
 }
 
 /**
- * Branch column. A worktree with a checked-out branch shows it. Otherwise it's
- * detached at the base branch's commit, so show e.g. "main~" to convey "based
- * on <base>, no branch yet".
+ * Branch column, derived from the worktree's *live* HEAD (read off disk), not
+ * the possibly-stale `branch` in state. If a branch is checked out, show it.
+ * Otherwise HEAD is detached; show e.g. "main~ (a1b2c3d)" to convey "detached,
+ * based on <base>, at this commit".
  */
-function branchLabel(w: { branch: string | null }, baseBranch: string): string {
-  if (w.branch) return w.branch;
-  return `${baseBranch}~`;
+function branchLabel(head: HeadInfo, baseBranch: string): string {
+  if (head.branch) return head.branch;
+  const commit = head.commit ? ` (${head.commit})` : "";
+  return `${baseBranch}~${commit}`;
 }
 
 export async function cmdList(
@@ -298,8 +301,22 @@ export async function cmdList(
     return (b.warmedAt ?? 0) - (a.warmedAt ?? 0);
   });
 
+  // Read each worktree's live HEAD off disk so we report the *actual* branch /
+  // commit, not the stale `branch` in state (the user may have created a branch
+  // after we handed the worktree out).
+  const heads = new Map<string, HeadInfo>();
+  for (const w of wts) heads.set(w.id, headInfo(w.path));
+  const headFor = (w: Worktree): HeadInfo =>
+    heads.get(w.id) ?? { branch: null, commit: null };
+
   if (opts.json) {
-    out(true, wts, "");
+    // Surface the live HEAD alongside the stored state so JSON consumers see
+    // the truth too. `liveBranch` is the checked-out branch (or null/detached).
+    const enriched = wts.map((w) => {
+      const h = headFor(w);
+      return { ...w, liveBranch: h.branch, liveCommit: h.commit };
+    });
+    out(true, enriched, "");
     return;
   }
   if (wts.length === 0) {
@@ -310,7 +327,7 @@ export async function cmdList(
     w.id.startsWith("pending-") ? "—" : w.id,
     display(w.repo),
     statusLabel(w.status),
-    branchLabel(w, bySlug.get(w.repo)?.baseBranch ?? "main"),
+    branchLabel(headFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
     w.path ? tildify(w.path) : "(building)",
   ]);
@@ -341,25 +358,6 @@ export async function cmdPrewarm(
     (w) => w.status === "ready",
   ).length;
   out(opts.json, { repo: label, ready }, `pool ready: ${ready} worktree(s)`);
-}
-
-// ---- gc ----
-
-export async function cmdGc(opts: CmdOpts): Promise<void> {
-  const config = loadConfig();
-  // reconcile() handles both stale transitional (crashed) records and records
-  // whose worktree dir vanished, cleaning up state + disk together.
-  const removed = await reconcile(config);
-  for (const [, repo] of Object.entries(config.repos)) {
-    pruneSource(repo);
-  }
-  out(
-    opts.json,
-    { removed },
-    removed.length
-      ? `pruned ${removed.length} stale worktree(s): ${removed.join(", ")}`
-      : "nothing to prune",
-  );
 }
 
 // ---- config ----
@@ -434,7 +432,7 @@ export async function cmdConfigRepo(
     const r = config.repos[token] ?? findByAlias(config, token);
     if (!r) {
       throw new Error(
-        `"${token}" isn't a path or a known alias. Pass a path, e.g. wt config ~/w/vercel/${token}.`,
+        `"${token}" isn't a path or a known alias. Pass a path, e.g. wt config ~/code/${token}.`,
       );
     }
     source = r.source;
