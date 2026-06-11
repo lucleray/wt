@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, rmSync, realpathSync } from "node:fs";
+import { mkdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { run, runOrThrow, runShell, shortId } from "./util.js";
 import { withNamedLockSync } from "./state.js";
@@ -123,10 +123,6 @@ export function removeWorktreeDir(repo: RepoConfig, wt: Worktree): void {
   });
 }
 
-export function pruneSource(repo: RepoConfig): void {
-  run("git", ["-C", repo.source, "worktree", "prune"]);
-}
-
 export function worktreeExistsOnDisk(wt: Worktree): boolean {
   return existsSync(wt.path);
 }
@@ -136,65 +132,81 @@ export interface HeadInfo {
   branch: string | null;
   /** Short commit HEAD points at, or null if it can't be read. */
   commit: string | null;
+  /** Uncommitted changes present (tracked or untracked). */
+  dirty: boolean;
+  /** Whether the branch has a configured upstream. */
+  hasUpstream: boolean;
+  /** Commits ahead of upstream (0 if none / no upstream). */
+  ahead: number;
+  /** Commits behind upstream (0 if none / no upstream). */
+  behind: number;
 }
 
+export const EMPTY_HEAD: HeadInfo = {
+  branch: null,
+  commit: null,
+  dirty: false,
+  hasUpstream: false,
+  ahead: 0,
+  behind: 0,
+};
+
 /**
- * Read a worktree's *live* git HEAD straight from disk, so we never trust the
+ * Read a worktree's *live* git state straight from disk, so we never trust the
  * possibly-stale `branch` recorded in state (the user may have run
- * `git switch -c` after we handed the worktree out). Returns the checked-out
- * branch (if any) and the short commit.
+ * `git switch -c` and committed after we handed the worktree out). Returns the
+ * checked-out branch (if any), the short commit, whether the tree is dirty, and
+ * upstream ahead/behind counts. Uses a single `git status` so it stays cheap.
  */
 export function headInfo(path: string): HeadInfo {
-  if (!path || !existsSync(path)) return { branch: null, commit: null };
-  const sym = run("git", ["-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"]);
-  const branch = sym.code === 0 ? sym.stdout.trim() || null : null;
-  const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
-  const commit = rev.code === 0 ? rev.stdout.trim() || null : null;
-  return { branch, commit };
-}
+  if (!path || !existsSync(path)) return { ...EMPTY_HEAD };
 
-/**
- * List the absolute paths of worktrees git knows about for a source repo,
- * excluding the main worktree itself.
- */
-export function listGitWorktrees(repo: RepoConfig): string[] {
+  // One call gives branch, upstream, ahead/behind, and dirty state.
   const res = run("git", [
     "-C",
-    repo.source,
-    "worktree",
-    "list",
-    "--porcelain",
+    path,
+    "status",
+    "--porcelain=v2",
+    "--branch",
   ]);
-  if (res.code !== 0) return [];
-  const paths: string[] = [];
+  if (res.code !== 0) {
+    // Fall back to a bare HEAD read (e.g. brand-new repo with no commits).
+    const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
+    return {
+      ...EMPTY_HEAD,
+      commit: rev.code === 0 ? rev.stdout.trim() || null : null,
+    };
+  }
+
+  let branch: string | null = null;
+  let commit: string | null = null;
+  let hasUpstream = false;
+  let ahead = 0;
+  let behind = 0;
+  let dirty = false;
+
   for (const line of res.stdout.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      const p = line.slice("worktree ".length).trim();
-      paths.push(p);
+    if (line.startsWith("# branch.head ")) {
+      const v = line.slice("# branch.head ".length).trim();
+      branch = v === "(detached)" ? null : v;
+    } else if (line.startsWith("# branch.oid ")) {
+      const oid = line.slice("# branch.oid ".length).trim();
+      commit = oid === "(initial)" ? null : oid.slice(0, 11);
+    } else if (line.startsWith("# branch.upstream ")) {
+      hasUpstream = true;
+    } else if (line.startsWith("# branch.ab ")) {
+      // Format: "# branch.ab +<ahead> -<behind>"
+      const m = line.match(/\+(\d+)\s+-(\d+)/);
+      if (m) {
+        ahead = parseInt(m[1], 10);
+        behind = parseInt(m[2], 10);
+      }
+    } else if (line && !line.startsWith("#")) {
+      // Any non-header line is a changed/untracked/unmerged entry.
+      dirty = true;
     }
   }
-  // First entry is the main worktree (the source repo itself); drop it.
-  const mainReal = realpathSafe(repo.source);
-  return paths.filter((p) => realpathSafe(p) !== mainReal);
+
+  return { branch, commit, dirty, hasUpstream, ahead, behind };
 }
 
-/** Force-remove a worktree by path (orphan with no state record). */
-export function removeOrphanPath(repo: RepoConfig, path: string): void {
-  run("git", ["-C", repo.source, "worktree", "remove", "--force", path]);
-  if (existsSync(path)) {
-    try {
-      rmSync(path, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
-  }
-  run("git", ["-C", repo.source, "worktree", "prune"]);
-}
-
-function realpathSafe(p: string): string {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-}

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   cmdUp,
   cmdDown,
@@ -12,6 +15,19 @@ import {
 } from "./commands.js";
 import { logo } from "./logo.js";
 
+/** Read the package version from package.json (one dir up from dist/). */
+function readVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(
+      readFileSync(join(here, "..", "package.json"), "utf8"),
+    );
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 const HELP = `wt — agent-first git worktree pool manager
 
 A <repo> is a path (e.g. ~/code/acme-app) or a configured alias (e.g. app).
@@ -19,7 +35,8 @@ The first time you 'up' an unconfigured path, wt offers to set it up.
 
 Usage:
   wt up <repo>            Get a ready worktree (instant from pool)
-  wt down [<id>]          Release a worktree back to the pool
+  wt down [<id>]          Release a worktree back to the pool (refuses if it
+                          has unsaved work; --force to override)
   wt list [<repo>]        List all worktrees and their status (alias: ls)
   wt config               Print and validate config
   wt config <repo>        Add / edit a repo (interactive, or via flags below)
@@ -31,6 +48,7 @@ Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
   --skip-setup  (up) On a cold build, skip the repo's setup script
+  --force       (down) Release even if the worktree has unsaved work
 
 config <repo> flags (non-interactive — for agents/scripts):
   --name <alias>      Friendly alias for the repo (optional)
@@ -60,7 +78,7 @@ async function main(): Promise<void> {
     return;
   }
   if (cmd === "-v" || cmd === "--version") {
-    process.stdout.write("0.1.0\n");
+    process.stdout.write(readVersion() + "\n");
     return;
   }
 
@@ -71,6 +89,7 @@ async function main(): Promise<void> {
       json: { type: "boolean" },
       "path-only": { type: "boolean" },
       "skip-setup": { type: "boolean" },
+      force: { type: "boolean" },
       source: { type: "string" },
       name: { type: "string" },
       base: { type: "string" },
@@ -86,6 +105,7 @@ async function main(): Promise<void> {
     json: values.json as boolean | undefined,
     pathOnly: values["path-only"] as boolean | undefined,
     skipSetup: values["skip-setup"] as boolean | undefined,
+    force: values.force as boolean | undefined,
     source: values.source as string | undefined,
     name: values.name as string | undefined,
     baseBranch: values.base as string | undefined,

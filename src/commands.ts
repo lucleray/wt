@@ -22,10 +22,10 @@ import {
   detach,
   worktreeExistsOnDisk,
   headInfo,
+  EMPTY_HEAD,
   type HeadInfo,
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
-import { reconcile } from "./reconcile.js";
 import {
   spawnDetached,
   humanAge,
@@ -41,6 +41,7 @@ export interface CmdOpts {
   json?: boolean;
   pathOnly?: boolean;
   skipSetup?: boolean;
+  force?: boolean;
   // `wt config <repo>` setters (non-interactive / agent mode):
   source?: string;
   name?: string;
@@ -81,9 +82,6 @@ export async function cmdUp(
   }
   const repo = resolved.cfg;
   const slug = resolved.slug;
-
-  // Clean up any crashed/stale worktrees before handing one out.
-  await reconcile(config);
 
   // Try to claim a ready worktree under the lock.
   let claimed = await withState((state): Worktree | null => {
@@ -194,7 +192,9 @@ export async function cmdDown(
   idOrNothing: string | undefined,
   opts: CmdOpts,
 ): Promise<void> {
-  const target = await withState((state): Worktree | null => {
+  // 1. Locate the worktree WITHOUT mutating state yet, so a safety abort below
+  //    leaves it exactly as it was.
+  const found = await withState((state): Worktree | null => {
     let wt: Worktree | undefined;
     if (idOrNothing) {
       wt = findById(state, idOrNothing);
@@ -207,6 +207,28 @@ export async function cmdDown(
         );
       }
     }
+    return { ...wt };
+  });
+
+  if (!found) return;
+
+  // 2. Recycling resets the worktree to base, destroying anything not saved.
+  //    Read the live HEAD and refuse if there's unsaved work (unless --force).
+  const head = headInfo(found.path);
+  if (!opts.force && hasUnsavedWork(head)) {
+    const what = workLabel(head);
+    const where = head.branch ? ` on branch "${head.branch}"` : "";
+    throw new Error(
+      `refusing to release ${found.id}: it has ${what} work${where}.\n` +
+        `Recycling resets the worktree to its base branch and would discard it.\n` +
+        `Commit and push (or stash) first, then retry — or pass --force to release anyway.`,
+    );
+  }
+
+  // 3. Safe to release: flip to needs-resetup and clear ownership.
+  const target = await withState((state): Worktree | null => {
+    const wt = findById(state, found.id);
+    if (!wt) return null;
     wt.status = "needs-resetup";
     wt.owner = null;
     wt.attachedAt = null;
@@ -225,10 +247,19 @@ export async function cmdDown(
   const source = sourceForSlug(config, target.repo);
   if (source) triggerTopup(source);
 
+  const note = head.branch
+    ? ` (was on "${head.branch}"${opts.force && hasUnsavedWork(head) ? ", forced" : ""})`
+    : "";
   out(
     opts.json,
-    { id: target.id, repo: target.repo, released: true },
-    `released ${target.id} — returning to pool`,
+    {
+      id: target.id,
+      repo: target.repo,
+      released: true,
+      wasBranch: head.branch,
+      forced: Boolean(opts.force && hasUnsavedWork(head)),
+    },
+    `released ${target.id}${note} — returning to pool`,
   );
 }
 
@@ -264,6 +295,35 @@ function branchLabel(head: HeadInfo, baseBranch: string): string {
   if (head.branch) return head.branch;
   const commit = head.commit ? ` (${head.commit})` : "";
   return `${baseBranch}~${commit}`;
+}
+
+/**
+ * Work column: a quick read of whether the worktree has anything worth saving
+ * before it's recycled. Combines uncommitted changes and unpushed commits so a
+ * `wt down` is never a surprise.
+ */
+function workLabel(head: HeadInfo): string {
+  const parts: string[] = [];
+  if (head.dirty) parts.push("uncommitted");
+  if (head.branch) {
+    if (!head.hasUpstream) {
+      // A branch with commits but no remote tracking = unpushed work.
+      if (head.commit) parts.push("unpushed");
+    } else if (head.ahead > 0) {
+      parts.push(`unpushed:${head.ahead}`);
+    }
+  }
+  return parts.length ? parts.join("+") : "clean";
+}
+
+/** True when a worktree holds work that recycling would blow away. */
+export function hasUnsavedWork(head: HeadInfo): boolean {
+  if (head.dirty) return true;
+  // Commits on a branch that aren't on a remote = unpushed work.
+  if (head.branch && (!head.hasUpstream || head.ahead > 0)) {
+    return head.commit != null;
+  }
+  return false;
 }
 
 export async function cmdList(
@@ -307,14 +367,23 @@ export async function cmdList(
   const heads = new Map<string, HeadInfo>();
   for (const w of wts) heads.set(w.id, headInfo(w.path));
   const headFor = (w: Worktree): HeadInfo =>
-    heads.get(w.id) ?? { branch: null, commit: null };
+    heads.get(w.id) ?? { ...EMPTY_HEAD };
 
   if (opts.json) {
     // Surface the live HEAD alongside the stored state so JSON consumers see
     // the truth too. `liveBranch` is the checked-out branch (or null/detached).
     const enriched = wts.map((w) => {
       const h = headFor(w);
-      return { ...w, liveBranch: h.branch, liveCommit: h.commit };
+      return {
+        ...w,
+        liveBranch: h.branch,
+        liveCommit: h.commit,
+        dirty: h.dirty,
+        hasUpstream: h.hasUpstream,
+        ahead: h.ahead,
+        behind: h.behind,
+        unsavedWork: hasUnsavedWork(h),
+      };
     });
     out(true, enriched, "");
     return;
@@ -328,10 +397,11 @@ export async function cmdList(
     display(w.repo),
     statusLabel(w.status),
     branchLabel(headFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
+    workLabel(headFor(w)),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
     w.path ? tildify(w.path) : "(building)",
   ]);
-  printTable(["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"], rows);
+  printTable(["ID", "REPO", "STATUS", "BRANCH", "WORK", "AGE", "PATH"], rows);
 }
 
 // ---- prewarm ----

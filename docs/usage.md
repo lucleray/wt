@@ -49,11 +49,18 @@ that contains the current working directory.
 ```sh
 wt down              # release the worktree you're in
 wt down ab12         # release by id
+wt down ab12 --force # release even if it has unsaved work
 ```
 
 `down` is instant: it detaches HEAD and marks the worktree for re-setup, which
 happens during the next background top-up. Your `node_modules` is preserved for
 reuse. If the pool is over capacity, the worktree is destroyed instead.
+
+**Safety:** recycling resets the worktree to its base branch, so `down` refuses
+if the worktree has **unsaved work** — uncommitted changes, or commits on a
+branch that aren't pushed to a remote. Commit + push (or stash) first, or pass
+`--force` to release anyway. (The branch ref itself survives in the source repo
+even after a forced release, so committed work is still recoverable.)
 
 ## `wt list [<repo>]` (alias: `wt ls`)
 
@@ -65,6 +72,12 @@ in-flight builds (shown as `setting up`). Status values:
 - `recycling` — released, waiting to be reset + re-set-up
 - `setting up` — being checked out / set up right now
 - `removing` — being torn down
+
+The **BRANCH** column shows the live checked-out branch (or `<base>~ (commit)`
+when detached), read straight from the worktree. The **WORK** column flags
+anything recycling would lose: `clean`, `uncommitted`, `unpushed`, or a
+combination (e.g. `uncommitted+unpushed`). `--json` adds `liveBranch`,
+`liveCommit`, `dirty`, `hasUpstream`, `ahead`, `behind`, and `unsavedWork`.
 
 ```sh
 wt list
