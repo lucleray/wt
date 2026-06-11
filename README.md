@@ -101,6 +101,15 @@ See [docs/usage.md](docs/usage.md) for full details.
 See [docs/design.md](docs/design.md) for the architecture: pool lifecycle,
 state management, freshness model, and concurrency.
 
+## Tests
+
+End-to-end tests drive the built CLI against throwaway repos in an isolated
+config dir (your real `~/.wt` is never touched):
+
+```sh
+pnpm test
+```
+
 ## Status
 
 v1 — daemon-less, lazy top-up, reuse-on-release. Designed for a single user
