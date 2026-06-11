@@ -1,24 +1,48 @@
 {
-  "name": "wt",
+  "name": "@lucleray/wt",
   "version": "0.1.0",
-  "description": "Agent-first git worktree pool manager",
+  "description": "Agent-first git worktree pool manager — hand out warm, pre-installed git worktrees instantly from a per-repo pool",
   "type": "module",
   "bin": {
-    "wt": "./dist/cli.js"
+    "wt": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs",
+    "README.md"
   ],
+  "keywords": [
+    "git",
+    "worktree",
+    "cli",
+    "monorepo",
+    "developer-tools",
+    "ai-agents",
+    "pnpm"
+  ],
+  "homepage": "https://github.com/lucleray/wt#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucleray/wt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lucleray/wt/issues"
+  },
+  "author": "lucleray",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
-    "test": "tsc && node --test"
+    "test": "tsc && node --test",
+    "prepublishOnly": "tsc"
   },
   "engines": {
     "node": ">=20"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
