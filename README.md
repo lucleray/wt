@@ -30,7 +30,7 @@ Agent-first git worktree pool manager. Get a ready-to-work copy of any repo
 ## Install
 
 ```sh
-pnpm install && pnpm build && pnpm link --global   # exposes the `wt` command
+npm install -g @lucleray/wt   # exposes the `wt` command
 ```
 
 ## Use
@@ -74,7 +74,11 @@ See [docs/design.md](docs/design.md) for the architecture (pool lifecycle, state
 management, freshness, concurrency) and [docs/config.md](docs/config.md) for
 configuration.
 
-## Tests
+## Develop
+
+```sh
+pnpm install && pnpm build && pnpm link --global   # run from source
+```
 
 End-to-end tests drive the built CLI against throwaway repos in an isolated
 config dir (your real `~/.wt` is never touched):
