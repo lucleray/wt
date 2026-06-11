@@ -16,9 +16,12 @@ import { resolveRepo } from "./repo.js";
 import { now } from "./time.js";
 
 /**
- * Bring a repo's `ready` pool up to minPool, and scale down (destroy released
- * worktrees) only when the total footprint exceeds maxPool. Re-sets-up released
- * worktrees first (cheap, keeps node_modules), then builds new ones as needed.
+ * Rebalance a repo's pool against three bounds:
+ *   - minWarmPool  — warm floor (kept implicitly: we build toward the warm cap).
+ *   - maxWarmPool  — warm ceiling: pre-build up to this many `ready` worktrees.
+ *   - maxTotalPool — total ceiling: never grow the on-disk pool beyond this.
+ * Re-sets-up released worktrees first (cheap, keeps node_modules), then builds
+ * new ones as needed; destroys released worktrees that exceed a ceiling.
  * Runs synchronously; invoked in the foreground (prewarm) or in a detached bg
  * process (after up/down). `token` is a source path or alias.
  */
@@ -64,23 +67,25 @@ async function topupRepoLocked(
       const warm = ready + inflight; // ready or about-to-be-ready
       const releasable = wts.filter((w) => w.status === "needs-resetup");
 
-      // 1. Scale down: if we're over the max ceiling, destroy a released one.
-      if (total > repo.maxPool && releasable.length > 0) {
+      // 1. Scale down: destroy a released worktree when we're over a ceiling —
+      //    either the total footprint exceeds maxTotalPool, or the warm pool is
+      //    already full (maxWarmPool reached) so recycling this one is wasteful.
+      if (releasable.length > 0 && (total > repo.maxTotalPool || warm >= repo.maxWarmPool)) {
         const victim = releasable[0];
         claim(victim, "destroying");
         return { kind: "destroy", wt: { ...victim } };
       }
 
-      // 2. Refill warm pool toward minPool. Prefer reusing a released worktree
-      //    (cheap reset, keeps node_modules) over building a fresh one.
-      if (warm < repo.minPool) {
+      // 2. Grow the warm pool toward maxWarmPool. Prefer reusing a released
+      //    worktree (cheap reset, keeps node_modules) over building fresh, and
+      //    never let the total footprint exceed maxTotalPool.
+      if (warm < repo.maxWarmPool) {
         const reuse = releasable[0];
         if (reuse) {
           claim(reuse, "resetting");
           return { kind: "resetup", wt: { ...reuse } };
         }
-        // Only build new if doing so won't blow past the max ceiling.
-        if (total < repo.maxPool) {
+        if (total < repo.maxTotalPool) {
           const placeholder: Worktree = {
             id: `pending-${Math.random().toString(36).slice(2, 6)}`,
             repo: slug,
@@ -97,14 +102,6 @@ async function topupRepoLocked(
           state.worktrees.push(placeholder);
           return { kind: "build", placeholderId: placeholder.id };
         }
-      }
-
-      // 3. Recycle any leftover released worktrees back to ready as long as we
-      //    have headroom under maxPool — keeps them warm instead of churning.
-      const reuse = releasable[0];
-      if (reuse && total <= repo.maxPool) {
-        claim(reuse, "resetting");
-        return { kind: "resetup", wt: { ...reuse } };
       }
 
       return { kind: "done" };

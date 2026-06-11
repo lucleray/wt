@@ -56,7 +56,7 @@ wt down                                      # release it back to the pool
 | `wt list [<repo>]`       | List all worktrees and their status (alias: `wt ls`).             |
 | `wt config`              | Print and validate the config (incl. pool bounds).                |
 | `wt config <repo>`       | Add / edit a repo (interactive, or via flags for agents).         |
-| `wt prewarm <repo>`      | Warm the pool to `minPool` ready worktrees.                       |
+| `wt prewarm <repo>`      | Warm the pool to `maxWarmPool` ready worktrees.                   |
 
 All commands accept `--json` for machine-readable output. `wt up` also accepts
 `--path-only` (print just the path) and `--skip-setup` (on a cold build, skip

@@ -42,7 +42,7 @@ Usage:
   wt config <repo>        Add / edit a repo (interactive, or via flags below)
 
 Advanced:
-  wt prewarm <repo>       Warm the pool to minPool
+  wt prewarm <repo>       Warm the pool to maxWarmPool
 
 Options:
   --json        Machine-readable output
@@ -55,8 +55,11 @@ config <repo> flags (non-interactive — for agents/scripts):
   --base <branch>     Base branch (default: main)
   --setup <cmd>       Setup command; auto-suggested from repo if omitted
   --no-setup          Explicitly set no setup command
-  --min <n>           Min pool size (default: 1)
-  --max <n>           Max pool size (default: 5)
+  --min-warm <n>      Warm floor: always keep this many ready (default: 1)
+  --max-warm <n>      Warm cap: pre-build up to this many ready (default: 5)
+  --max-total <n>     Total cap: never exceed this many worktrees (default: 25)
+  --min <n>           Alias for --min-warm (legacy)
+  --max <n>           Alias for --max-total (legacy)
   --source <path>     Source path (usually just pass the path as <repo>)
   --yes               Skip prompts / accept defaults
 
@@ -95,6 +98,9 @@ async function main(): Promise<void> {
       base: { type: "string" },
       setup: { type: "string" },
       "no-setup": { type: "boolean" },
+      "min-warm": { type: "string" },
+      "max-warm": { type: "string" },
+      "max-total": { type: "string" },
       min: { type: "string" },
       max: { type: "string" },
       yes: { type: "boolean" },
@@ -111,8 +117,11 @@ async function main(): Promise<void> {
     baseBranch: values.base as string | undefined,
     setup: values.setup as string | undefined,
     noSetup: values["no-setup"] as boolean | undefined,
-    minPool: values.min ? parseInt(values.min as string, 10) : undefined,
-    maxPool: values.max ? parseInt(values.max as string, 10) : undefined,
+    // New 3-knob flags; --min / --max remain as legacy aliases
+    // (--min -> warm floor, --max -> total cap).
+    minWarmPool: intOpt(values["min-warm"] ?? values.min),
+    maxWarmPool: intOpt(values["max-warm"]),
+    maxTotalPool: intOpt(values["max-total"] ?? values.max),
     yes: values.yes as boolean | undefined,
   };
 
@@ -145,6 +154,13 @@ async function main(): Promise<void> {
       process.stderr.write(`unknown command: ${cmd}\n\n${HELP}`);
       process.exitCode = 1;
   }
+}
+
+/** Parse an optional numeric flag string into a number (undefined if absent). */
+function intOpt(val: unknown): number | undefined {
+  if (typeof val !== "string") return undefined;
+  const n = parseInt(val, 10);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function requireArg(val: string | undefined, usage: string): asserts val is string {

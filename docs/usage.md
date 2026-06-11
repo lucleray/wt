@@ -54,7 +54,8 @@ wt down ab12 --force # release even if it has unsaved work
 
 `down` is instant: it detaches HEAD and marks the worktree for re-setup, which
 happens during the next background top-up. Your `node_modules` is preserved for
-reuse. If the pool is over capacity, the worktree is destroyed instead.
+reuse. If the warm pool is already full (`maxWarmPool`) or the pool is over its
+total cap (`maxTotalPool`), the worktree is destroyed instead.
 
 **Safety:** recycling resets the worktree to its base branch, so `down` refuses
 if the worktree has **unsaved work** — uncommitted changes, or commits on a
@@ -86,11 +87,12 @@ wt ls
 wt list --json
 ```
 
-Pool bounds (`minPool` / `maxPool`) are shown by `wt config`.
+Pool bounds (`minWarmPool` / `maxWarmPool` / `maxTotalPool`) are shown by
+`wt config` in the `WARM/TOTAL` column (e.g. `1–5/25`).
 
 ## `wt prewarm <repo>`
 
-Warm the pool until it reaches the repo's `minPool` ready worktrees. Runs in
+Warm the pool until it reaches the repo's `maxWarmPool` ready worktrees. Runs in
 the foreground so you see progress and any setup errors.
 
 ```sh

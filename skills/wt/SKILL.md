@@ -101,9 +101,14 @@ To set an alias or tune pool size / setup non-interactively:
 
 ```bash
 wt config ~/code/acme-app --name app --yes --json
-wt config ~/code/acme-app --setup 'pnpm install' --min 1 --max 5 --yes
+# pool knobs: --min-warm (floor), --max-warm (warm cap), --max-total (hard cap)
+wt config ~/code/acme-app --setup 'pnpm install' --min-warm 1 --max-warm 5 --max-total 25 --yes
 wt config ~/code/notes --no-setup --yes
 ```
+
+Pool sizing has three knobs: `minWarmPool` (always keep this many ready),
+`maxWarmPool` (pre-build up to this many warm), and `maxTotalPool` (hard cap on
+worktrees on disk, e.g. for many concurrent branches).
 
 See <https://github.com/lucleray/wt/blob/main/docs/config.md> for the full
 reference.

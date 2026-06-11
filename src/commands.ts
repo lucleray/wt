@@ -4,6 +4,10 @@ import {
   configPath,
   writeRepoConfig,
   repoLabel,
+  DEFAULT_MIN_WARM,
+  DEFAULT_MAX_WARM,
+  DEFAULT_MAX_TOTAL,
+  DEFAULT_BASE,
   type Config,
   type RepoConfig,
 } from "./config.js";
@@ -48,9 +52,15 @@ export interface CmdOpts {
   baseBranch?: string;
   setup?: string;
   noSetup?: boolean;
-  minPool?: number;
-  maxPool?: number;
+  minWarmPool?: number;
+  maxWarmPool?: number;
+  maxTotalPool?: number;
   yes?: boolean;
+}
+
+/** Compact pool-bounds label for tables: "warm min–max / total", e.g. "1–5/25". */
+function poolLabel(repo: RepoConfig): string {
+  return `${repo.minWarmPool}–${repo.maxWarmPool}/${repo.maxTotalPool}`;
 }
 
 function out(json: boolean | undefined, data: unknown, human: string): void {
@@ -175,8 +185,9 @@ async function ensureConfigured(source: string, opts: CmdOpts): Promise<void> {
       source,
       baseBranch: DEFAULT_BASE,
       setup: opts.skipSetup ? null : (sug.setup ?? undefined),
-      minPool: DEFAULT_MIN,
-      maxPool: DEFAULT_MAX,
+      minWarmPool: DEFAULT_MIN_WARM,
+      maxWarmPool: DEFAULT_MAX_WARM,
+      maxTotalPool: DEFAULT_MAX_TOTAL,
     });
     if (!opts.json && !opts.pathOnly) {
       process.stderr.write(
@@ -462,12 +473,12 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
       v.ok ? "✓" : "✗",
       repoLabel(repo),
       repo.baseBranch,
-      `${repo.minPool}–${repo.maxPool}`,
+      poolLabel(repo),
       repo.setup ?? "—",
       tildify(repo.source),
     ];
   });
-  printTable(["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"], rows, "  ");
+  printTable(["", "REPO", "BASE", "WARM/TOTAL", "SETUP", "SOURCE"], rows, "  ");
 
   if (broken.length) {
     process.stdout.write("\n  problems:\n");
@@ -481,10 +492,6 @@ export async function cmdConfig(opts: CmdOpts): Promise<void> {
 }
 
 // ---- config <repo> (add / edit a repo) ----
-
-const DEFAULT_MIN = 1;
-const DEFAULT_MAX = 5;
-const DEFAULT_BASE = "main";
 
 export async function cmdConfigRepo(
   token: string,
@@ -515,8 +522,9 @@ export async function cmdConfigRepo(
     opts.baseBranch !== undefined ||
     opts.setup !== undefined ||
     opts.noSetup ||
-    opts.minPool !== undefined ||
-    opts.maxPool !== undefined ||
+    opts.minWarmPool !== undefined ||
+    opts.maxWarmPool !== undefined ||
+    opts.maxTotalPool !== undefined ||
     opts.name !== undefined;
 
   const interactive = isInteractive() && !opts.json && !opts.yes && !hasSetters;
@@ -536,8 +544,10 @@ export async function cmdConfigRepo(
       name: opts.name ?? existing?.name,
       baseBranch: opts.baseBranch ?? existing?.baseBranch ?? DEFAULT_BASE,
       setup: setup as string | null | undefined,
-      minPool: opts.minPool ?? existing?.minPool ?? DEFAULT_MIN,
-      maxPool: opts.maxPool ?? existing?.maxPool ?? DEFAULT_MAX,
+      minWarmPool: opts.minWarmPool ?? existing?.minWarmPool ?? DEFAULT_MIN_WARM,
+      maxWarmPool: opts.maxWarmPool ?? existing?.maxWarmPool ?? DEFAULT_MAX_WARM,
+      maxTotalPool:
+        opts.maxTotalPool ?? existing?.maxTotalPool ?? DEFAULT_MAX_TOTAL,
     });
     finishConfigRepo(source, opts);
     return;
@@ -583,8 +593,18 @@ async function configureRepoInteractive(
     "setup command (blank for none)",
     existing?.setup ?? sug.setup ?? "",
   );
-  const minAns = await prompt("min pool", String(existing?.minPool ?? DEFAULT_MIN));
-  const maxAns = await prompt("max pool", String(existing?.maxPool ?? DEFAULT_MAX));
+  const minWarmAns = await prompt(
+    "min warm pool (always keep this many ready)",
+    String(existing?.minWarmPool ?? DEFAULT_MIN_WARM),
+  );
+  const maxWarmAns = await prompt(
+    "max warm pool (pre-build up to this many)",
+    String(existing?.maxWarmPool ?? DEFAULT_MAX_WARM),
+  );
+  const maxTotalAns = await prompt(
+    "max total pool (hard cap on worktrees)",
+    String(existing?.maxTotalPool ?? DEFAULT_MAX_TOTAL),
+  );
   const nameAns = await prompt(
     "alias name (optional)",
     existing?.name ?? "",
@@ -595,8 +615,9 @@ async function configureRepoInteractive(
     name: nameAns === "" ? null : nameAns,
     baseBranch,
     setup: setupAns === "" ? null : setupAns,
-    minPool: parseIntOr(minAns, DEFAULT_MIN),
-    maxPool: parseIntOr(maxAns, DEFAULT_MAX),
+    minWarmPool: parseIntOr(minWarmAns, DEFAULT_MIN_WARM),
+    maxWarmPool: parseIntOr(maxWarmAns, DEFAULT_MAX_WARM),
+    maxTotalPool: parseIntOr(maxTotalAns, DEFAULT_MAX_TOTAL),
   });
 }
 
@@ -620,13 +641,13 @@ function finishConfigRepo(source: string, opts: CmdOpts): void {
   process.stdout.write("\n");
   process.stdout.write(`  saved "${label}" to ${tildify(configPath())}\n\n`);
   printTable(
-    ["", "REPO", "BASE", "POOL", "SETUP", "SOURCE"],
+    ["", "REPO", "BASE", "WARM/TOTAL", "SETUP", "SOURCE"],
     [
       [
         v.ok ? "✓" : "✗",
         label,
         repo.baseBranch,
-        `${repo.minPool}–${repo.maxPool}`,
+        poolLabel(repo),
         repo.setup ?? "—",
         tildify(repo.source),
       ],

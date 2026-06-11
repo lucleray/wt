@@ -73,7 +73,7 @@ If `wt up` finds no `ready` worktree, it **builds one on demand** (blocking)
 and warns that this is a cold start, then triggers a background top-up. So `up`
 never fails — it is just occasionally slow.
 
-### Reuse on release (minPool / maxPool)
+### Reuse on release (minWarmPool / maxWarmPool / maxTotalPool)
 
 `wt down` is **instant**: it detaches HEAD and marks the worktree
 `needs-resetup` rather than re-running setup synchronously. The actual
@@ -81,17 +81,21 @@ never fails — it is just occasionally slow.
 top-up. This keeps the warm `node_modules` and avoids blocking the user on
 `down`.
 
-The top-up balances the pool against two bounds:
+The top-up balances the pool against three bounds:
 
-- It refills toward **`minPool`** (the warm floor) — reusing released worktrees
-  first (cheap reset, keeps deps), then building new ones if needed.
-- A released worktree is **kept and reused** as long as the total worktree count
-  is within **`maxPool`**. Only when the total would exceed `maxPool` is a
-  released worktree destroyed.
+- **`minWarmPool`** — the warm floor. At least this many `ready` worktrees are
+  always kept available.
+- **`maxWarmPool`** — the warm ceiling. The top-up grows the warm pool toward
+  this many `ready` worktrees (reusing released ones first — cheap reset, keeps
+  deps — then building new ones), and never keeps more than this idle. A
+  released worktree beyond the warm cap is destroyed rather than kept warm.
+- **`maxTotalPool`** — the total ceiling. The pool never grows beyond this many
+  worktrees on disk (warm + in-use + recycling). This is the hard backstop on
+  disk usage.
 
-So with `minPool: 1, maxPool: 5`, bouncing `up`/`down` recycles warm worktrees
-up to 5 before any are torn down — avoiding the churn of deleting and
-reinstalling on every release.
+So with `minWarmPool: 1, maxWarmPool: 5, maxTotalPool: 25`, bouncing `up`/`down`
+recycles warm worktrees up to 5 before surplus is torn down, while still
+allowing up to 25 worktrees to exist at once when many branches are checked out.
 
 ### Freshness
 
@@ -104,8 +108,9 @@ automatic reset on hand-out (that would make `up` slow and defeat the point).
 
 There is **no daemon** in v1. Top-up is triggered lazily by `up` and `down`:
 after handing out or releasing a worktree, `wt` spawns a detached background
-process (`wt __topup <repo>`) that rebalances the pool against `minPool` /
-`maxPool`, building new worktrees or re-setting-up released ones as needed.
+process (`wt __topup <repo>`) that rebalances the pool against `minWarmPool` /
+`maxWarmPool` / `maxTotalPool`, building new worktrees or re-setting-up released
+ones as needed.
 
 Top-ups are **serialized per repo** with a non-blocking lock (`topup-<repo>`):
 if one is already running, a newly triggered one no-ops, since the running

@@ -148,3 +148,64 @@ test("--version matches package.json", () => {
   assert.equal(r.code, 0);
   assert.equal(r.stdout.trim(), pkg);
 });
+
+/** Resolve a configured repo's pool bounds via `wt config --json`. */
+function repoConfig(source) {
+  const r = wt(["config", "--json"]);
+  assert.equal(r.code, 0, `config --json failed: ${r.stderr}`);
+  const parsed = JSON.parse(r.stdout);
+  return parsed.config.repos[source];
+}
+
+test("config sets the three pool knobs from new flags", () => {
+  const r = wt([
+    "config",
+    repo,
+    "--min-warm", "2",
+    "--max-warm", "4",
+    "--max-total", "12",
+    "--yes",
+  ]);
+  assert.equal(r.code, 0, `config failed: ${r.stderr}`);
+  const c = repoConfig(repo);
+  assert.equal(c.minWarmPool, 2);
+  assert.equal(c.maxWarmPool, 4);
+  assert.equal(c.maxTotalPool, 12);
+});
+
+test("legacy --min/--max map to warm floor / total cap", () => {
+  const r = wt(["config", repo, "--min", "3", "--max", "9", "--yes"]);
+  assert.equal(r.code, 0, `config failed: ${r.stderr}`);
+  const c = repoConfig(repo);
+  assert.equal(c.minWarmPool, 3, "--min -> minWarmPool");
+  assert.equal(c.maxTotalPool, 9, "--max -> maxTotalPool");
+});
+
+test("legacy poolSize in the config file resolves to a fixed-size pool", () => {
+  // Write a raw legacy config and verify it loads with clamped bounds.
+  const cfgFile = join(cfgDir, "config.jsonc");
+  writeFileSync(
+    cfgFile,
+    JSON.stringify({ repos: { [repo]: { poolSize: 3 } } }, null, 2),
+  );
+  const c = repoConfig(repo);
+  assert.equal(c.minWarmPool, 3);
+  assert.equal(c.maxWarmPool, 3);
+  assert.equal(c.maxTotalPool, 3);
+});
+
+test("bounds are clamped so minWarm <= maxWarm <= maxTotal", () => {
+  const cfgFile = join(cfgDir, "config.jsonc");
+  writeFileSync(
+    cfgFile,
+    JSON.stringify(
+      { repos: { [repo]: { minWarmPool: 8, maxWarmPool: 2, maxTotalPool: 1 } } },
+      null,
+      2,
+    ),
+  );
+  const c = repoConfig(repo);
+  assert.equal(c.minWarmPool, 8);
+  assert.equal(c.maxWarmPool, 8, "maxWarm raised to >= minWarm");
+  assert.equal(c.maxTotalPool, 8, "maxTotal raised to >= maxWarm");
+});

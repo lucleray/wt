@@ -11,9 +11,11 @@ export interface RepoConfig {
   baseBranch: string;
   setup?: string;
   /** Warm floor: always keep at least this many `ready` worktrees. */
-  minPool: number;
-  /** Total ceiling: destroy released worktrees only when total exceeds this. */
-  maxPool: number;
+  minWarmPool: number;
+  /** Warm ceiling: pre-build up to this many `ready` worktrees (never more). */
+  maxWarmPool: number;
+  /** Total ceiling: refuse to grow the pool beyond this many worktrees on disk. */
+  maxTotalPool: number;
 }
 
 export interface Config {
@@ -28,16 +30,28 @@ interface RawRepoConfig {
   name?: string;
   baseBranch?: string;
   setup?: string;
-  /** Backwards-compatible alias: sets both minPool and maxPool. */
-  poolSize?: number;
+  /** Current pool knobs. */
+  minWarmPool?: number;
+  maxWarmPool?: number;
+  maxTotalPool?: number;
+  /** Legacy alias: minPool -> minWarmPool. */
   minPool?: number;
+  /** Legacy alias: maxPool -> maxTotalPool. */
   maxPool?: number;
+  /** Legacy alias: poolSize -> sets warm + total bounds to a fixed size. */
+  poolSize?: number;
 }
 
 interface RawConfig {
   worktreeRoot?: string;
   repos?: Record<string, RawRepoConfig>;
 }
+
+/** Pool sizing defaults: keep 1 warm minimum, pre-warm up to 5, allow 25 total. */
+export const DEFAULT_MIN_WARM = 1;
+export const DEFAULT_MAX_WARM = 5;
+export const DEFAULT_MAX_TOTAL = 25;
+export const DEFAULT_BASE = "main";
 
 export function configDir(): string {
   if (process.env.WT_CONFIG_DIR) return expandPath(process.env.WT_CONFIG_DIR);
@@ -70,20 +84,50 @@ export function loadConfig(): Config {
     const sourceKey = isLegacy ? (r.source as string) : key;
     const name = isLegacy ? key : r.name;
 
-    // poolSize is a back-compat alias that sets both bounds.
-    const min = r.minPool ?? r.poolSize ?? 1;
-    let max = r.maxPool ?? r.poolSize ?? min;
-    if (max < min) max = min; // max can never be below min
     repos[expandPath(sourceKey)] = {
       source: expandPath(sourceKey),
       name,
-      baseBranch: r.baseBranch ?? "main",
+      baseBranch: r.baseBranch ?? DEFAULT_BASE,
       setup: r.setup,
-      minPool: min,
-      maxPool: max,
+      ...resolvePoolBounds(r),
     };
   }
   return { worktreeRoot, repos };
+}
+
+interface PoolBounds {
+  minWarmPool: number;
+  maxWarmPool: number;
+  maxTotalPool: number;
+}
+
+/**
+ * Resolve the three pool knobs from a raw repo entry, honoring legacy aliases:
+ *   minPool  -> minWarmPool   (warm floor)
+ *   maxPool  -> maxTotalPool  (total ceiling)
+ *   poolSize -> a fixed-size pool (sets all three)
+ * New keys win over legacy ones. The result is clamped so that
+ * minWarmPool <= maxWarmPool <= maxTotalPool always holds.
+ */
+export function resolvePoolBounds(r: RawRepoConfig): PoolBounds {
+  let minWarm = r.minWarmPool ?? r.minPool ?? r.poolSize ?? DEFAULT_MIN_WARM;
+
+  // Resolve the total cap first: explicit new key, else legacy maxPool/poolSize,
+  // else the default total cap (at least as large as the warm floor).
+  let maxTotal =
+    r.maxTotalPool ?? r.maxPool ?? r.poolSize ?? Math.max(DEFAULT_MAX_TOTAL, minWarm);
+
+  // maxWarm has no direct legacy key. poolSize pins it; otherwise default to the
+  // warm cap but never above the (possibly legacy/smaller) total cap, so an old
+  // `maxPool: 3` doesn't silently widen the warm pool to 5.
+  let maxWarm =
+    r.maxWarmPool ?? r.poolSize ?? Math.min(Math.max(DEFAULT_MAX_WARM, minWarm), maxTotal);
+
+  // Clamp into a coherent ordering: minWarm <= maxWarm <= maxTotal.
+  if (minWarm < 1) minWarm = 1;
+  if (maxWarm < minWarm) maxWarm = minWarm;
+  if (maxTotal < maxWarm) maxTotal = maxWarm;
+  return { minWarmPool: minWarm, maxWarmPool: maxWarm, maxTotalPool: maxTotal };
 }
 
 /** Read the raw (unexpanded) config, or an empty one if the file is absent. */
@@ -99,8 +143,9 @@ export interface RepoConfigInput {
   name?: string | null;
   baseBranch?: string;
   setup?: string | null;
-  minPool?: number;
-  maxPool?: number;
+  minWarmPool?: number;
+  maxWarmPool?: number;
+  maxTotalPool?: number;
 }
 
 /**
@@ -139,11 +184,18 @@ export function writeRepoConfig(input: RepoConfigInput): void {
     if (input.setup === null || input.setup === "") delete next.setup;
     else next.setup = input.setup;
   }
-  if (input.minPool !== undefined) next.minPool = input.minPool;
-  if (input.maxPool !== undefined) next.maxPool = input.maxPool;
-  // Migrate away from the legacy poolSize alias once min/max are set.
-  if (next.minPool !== undefined || next.maxPool !== undefined) {
+  if (input.minWarmPool !== undefined) next.minWarmPool = input.minWarmPool;
+  if (input.maxWarmPool !== undefined) next.maxWarmPool = input.maxWarmPool;
+  if (input.maxTotalPool !== undefined) next.maxTotalPool = input.maxTotalPool;
+  // Migrate away from the legacy pool aliases once any new bound is set.
+  if (
+    next.minWarmPool !== undefined ||
+    next.maxWarmPool !== undefined ||
+    next.maxTotalPool !== undefined
+  ) {
     delete next.poolSize;
+    delete next.minPool;
+    delete next.maxPool;
   }
 
   // Remove the legacy key if it differed from the path key, then write under
