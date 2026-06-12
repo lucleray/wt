@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+*.local.md
 
 # Local npm auth token for publishing (never commit)
 .npmrc

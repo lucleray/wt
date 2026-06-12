@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run, runOrThrow, runShell, shortId } from "./util.js";
 import { withNamedLockSync } from "./state.js";
@@ -9,6 +9,24 @@ export interface BuildResult {
   id: string;
   path: string;
   baseCommit: string;
+}
+
+/**
+ * Drop a `.metadata_never_index` marker at the pool root so macOS Spotlight
+ * skips the entire worktree tree. The pool churns constantly (fresh checkouts +
+ * installs), and indexing thousands of `node_modules` files gives no search
+ * value while pinning `mds_stores`/`fseventsd` at high CPU (fans + battery).
+ * Best-effort and idempotent: harmless/no-op on non-macOS or if perms fail.
+ */
+function ensureSpotlightExcluded(root: string): void {
+  const marker = join(root, ".metadata_never_index");
+  if (existsSync(marker)) return;
+  try {
+    mkdirSync(root, { recursive: true });
+    writeFileSync(marker, "");
+  } catch {
+    /* best effort */
+  }
 }
 
 /** Fetch the source repo so the base branch is current. */
@@ -49,6 +67,7 @@ export function buildWorktree(
   fetchSource(repo);
   const ref = baseRef(repo);
   const id = shortId();
+  ensureSpotlightExcluded(config.worktreeRoot);
   const dir = join(config.worktreeRoot, slug);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `wt-${id}`);

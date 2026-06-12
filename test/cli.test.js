@@ -5,7 +5,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -136,6 +136,18 @@ test("down with an unknown id errors clearly", () => {
   const r = wt(["down", "nope"]);
   assert.equal(r.code, 1);
   assert.match(r.stderr, /no worktree with id "nope"/);
+});
+
+test("build drops a Spotlight .metadata_never_index marker at the pool root", () => {
+  // A worktree was built by the cold-start test above, so the marker that
+  // buildWorktree() writes at the pool root must be present.
+  const r = wt(["config", "--json"]);
+  assert.equal(r.code, 0, `config --json failed: ${r.stderr}`);
+  const { worktreeRoot } = JSON.parse(r.stdout).config;
+  assert.ok(
+    existsSync(join(worktreeRoot, ".metadata_never_index")),
+    "expected .metadata_never_index at the worktree root after a build",
+  );
 });
 
 test("--version matches package.json", () => {
