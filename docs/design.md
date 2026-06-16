@@ -147,9 +147,19 @@ A worktree record:
   "warmedAt": 1700000000,   // epoch seconds
   "attachedAt": null,
   "workerPid": null,        // pid of the worker doing a transitional op, if any
-  "enteredAt": null         // when the current transitional state was entered
+  "enteredAt": null,        // when the current transitional state was entered
+  "sessionInfo": null,      // auto-captured attaching session: { pid, process, command, cwd, attachedAt }
+  "sessionMeta": null       // caller-supplied metadata from `wt up --meta` (e.g. an agent's session id)
 }
 ```
+
+`sessionInfo` and `sessionMeta` are populated on `wt up` (cleared on `wt down`).
+`sessionInfo` is auto-detected — the parent process that ran `wt up` (the
+shell/agent), captured best-effort via `ps`. `sessionMeta` is an arbitrary JSON
+object the caller passes (agents use it to tag a worktree with their session id
+so they can find it later via `wt list --json`). Both are **purely
+informational**: like a dead `owner`, a stale `sessionInfo.pid` is never a
+signal to reclaim or destroy anything (see Crash recovery below).
 
 ## Crash recovery
 

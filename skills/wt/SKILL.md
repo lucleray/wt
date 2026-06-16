@@ -90,9 +90,34 @@ pushed to a remote. This guard is intentional:
 - Only use `wt down --force` when the user explicitly wants to discard the
   worktree's state (the branch ref still survives in the source repo, so
   committed work remains recoverable).
-- `wt list` shows a **WORK** column (`clean` / `uncommitted` / `unpushed`) so
-  you can check what a worktree holds before recycling it. `--json` exposes
-  `dirty`, `hasUpstream`, `ahead`, `behind`, and `unsavedWork`.
+- `wt list` shows each worktree's id, repo, status, branch, age, and path.
+  `--json` adds `liveBranch`, `liveCommit`, `ahead`, and `behind`. (Listing is
+  cheap and does **not** run `git status`; `wt down` does the full unsaved-work
+  check when it actually matters.)
+
+## Tracking which worktree is yours (--meta)
+
+`wt up` records who attached a worktree, so you can find it again later:
+
+- `sessionInfo` — auto-captured: the attaching process's `pid`, `process`,
+  `command`, and `cwd`.
+- `sessionMeta` — whatever you pass via `--meta` (a JSON object).
+
+Tag a worktree with your own session id (and anything else useful) when you take
+it, then locate it later by filtering `wt list --json` on `sessionMeta`:
+
+```bash
+# take a worktree and stamp it with your session id + task
+path="$(wt up ~/code/acme-app --path-only --meta '{"sessionId":"<your-session-id>","task":"luc/feature"}')"
+cd "$path"
+
+# later: find the worktree this session started
+wt list --json | jq '.[] | select(.sessionMeta.sessionId == "<your-session-id>")'
+```
+
+Both fields are informational only — `wt` never reclaims or destroys a worktree
+based on them, even if the recorded pid is long dead. They're cleared on
+`wt down`.
 
 ## Configuring / tuning a repo (optional)
 

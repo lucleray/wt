@@ -39,6 +39,7 @@ import {
   isInteractive,
   prompt,
   run,
+  captureSession,
 } from "./util.js";
 import { now } from "./time.js";
 
@@ -47,6 +48,8 @@ export interface CmdOpts {
   pathOnly?: boolean;
   skipSetup?: boolean;
   force?: boolean;
+  /** Raw JSON string from `wt up --meta`, parsed into sessionMeta. */
+  meta?: string;
   // `wt config <repo>` setters (non-interactive / agent mode):
   source?: string;
   name?: string;
@@ -77,10 +80,34 @@ function triggerTopup(source: string): void {
 
 // ---- up ----
 
+/**
+ * Parse the `--meta` flag into a sessionMeta object. Fails fast (before any
+ * worktree is claimed) so a malformed value is surfaced immediately rather than
+ * silently dropped. Must be a JSON *object* — arrays / primitives are rejected.
+ */
+function parseMeta(raw: string | undefined): Record<string, unknown> | null {
+  if (raw == null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `--meta must be a JSON object: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`--meta must be a JSON object (got ${Array.isArray(parsed) ? "array" : typeof parsed})`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export async function cmdUp(
   token: string,
   opts: CmdOpts,
 ): Promise<void> {
+  // Validate --meta up front so a bad value never leaves a half-attached state.
+  const sessionMeta = parseMeta(opts.meta);
+
   let config = loadConfig();
   let resolved = resolveRepo(config, token);
 
@@ -94,6 +121,9 @@ export async function cmdUp(
   const repo = resolved.cfg;
   const slug = resolved.slug;
 
+  // Capture who's attaching (parent pid / process / cwd) once, before claiming.
+  const sessionInfo = captureSession();
+
   // Try to claim a ready worktree under the lock.
   let claimed = await withState((state): Worktree | null => {
     const ready = worktreesForRepo(state, slug).find(
@@ -103,6 +133,8 @@ export async function cmdUp(
     ready.status = "attached";
     ready.owner = process.cwd();
     ready.attachedAt = now();
+    ready.sessionInfo = sessionInfo;
+    ready.sessionMeta = sessionMeta;
     return { ...ready };
   });
 
@@ -134,6 +166,8 @@ export async function cmdUp(
         attachedAt: now(),
         workerPid: null,
         enteredAt: null,
+        sessionInfo,
+        sessionMeta,
       };
       state.worktrees.push(wt);
       return { ...wt };
@@ -159,6 +193,8 @@ export async function cmdUp(
       path: claimed.path,
       cold,
       warmedAt: claimed.warmedAt,
+      sessionInfo: claimed.sessionInfo,
+      sessionMeta: claimed.sessionMeta,
     },
     `${claimed.path}${warmedNote}\n(detached — create a branch with: git switch -c <name>)`,
   );
@@ -246,6 +282,8 @@ export async function cmdDown(
     wt.attachedAt = null;
     wt.workerPid = null;
     wt.enteredAt = null;
+    wt.sessionInfo = null;
+    wt.sessionMeta = null;
     return { ...wt };
   });
 

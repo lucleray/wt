@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import type { SessionInfo } from "./state.js";
 
 /** Expand ~ and $VARS in a path-like string. */
 export function expandPath(p: string): string {
@@ -161,6 +162,60 @@ export function spawnDetached(cmd: string, args: string[]): void {
 
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 6);
+}
+
+/** Max chars we keep of a captured command line, to keep state.json sane. */
+const MAX_COMMAND_LEN = 500;
+
+/**
+ * Capture best-effort info about the session attaching a worktree. `wt up` is
+ * short-lived and exec'd directly by the shell, so its *parent* (process.ppid)
+ * is the real long-lived session (a shell, or an agent like opencode). We record
+ * that pid plus its process name / command line (via `ps`, POSIX, best-effort)
+ * and the cwd. Purely informational — a dead pid is never acted upon.
+ */
+export function captureSession(): SessionInfo {
+  const ppid = process.ppid;
+  const pid = typeof ppid === "number" && ppid > 1 ? ppid : null;
+
+  let processName: string | null = null;
+  let command: string | null = null;
+  if (pid != null) {
+    // `ps -o comm=,args=` prints the short name then the full argv on one line.
+    const res = run("ps", ["-o", "comm=,args=", "-p", String(pid)]);
+    if (res.code === 0) {
+      const line = res.stdout.trim();
+      if (line) {
+        // comm has no spaces; the rest (after the first run of spaces) is args.
+        const m = line.match(/^(\S+)\s+(.*)$/);
+        if (m) {
+          processName = basename(m[1]);
+          command = clamp(m[2], MAX_COMMAND_LEN);
+        } else {
+          processName = basename(line);
+        }
+      }
+    }
+  }
+
+  return {
+    pid,
+    process: processName,
+    command,
+    cwd: process.cwd(),
+    attachedAt: Math.floor(Date.now() / 1000),
+  };
+}
+
+/** Basename of a path/command token (no node:path import needed here). */
+function basename(p: string): string {
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
+/** Truncate a string to n chars, marking truncation with an ellipsis. */
+function clamp(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 export function humanAge(epochSeconds: number): string {

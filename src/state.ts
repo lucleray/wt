@@ -21,6 +21,24 @@ export type WorktreeStatus =
   | "resetting" // git reset --hard + re-setup running
   | "destroying"; // git worktree remove running
 
+/**
+ * Auto-captured details about the session that attached a worktree. Purely
+ * informational — `wt` never acts on a (possibly-dead) pid, so this is safe to
+ * be stale. See `captureSession` in util.ts.
+ */
+export interface SessionInfo {
+  /** PID of the process that ran `wt up` (its parent — the shell/agent). */
+  pid: number | null;
+  /** Short process name of that pid (e.g. "opencode"), best-effort. */
+  process: string | null;
+  /** Full command line of that pid, best-effort, length-clamped. */
+  command: string | null;
+  /** Working directory the worktree was handed out to. */
+  cwd: string;
+  /** Epoch seconds when it was attached. */
+  attachedAt: number;
+}
+
 /** States where a worker process is mid-operation and a crash leaves junk. */
 export interface Worktree {
   id: string;
@@ -36,6 +54,11 @@ export interface Worktree {
   workerPid: number | null;
   /** Epoch seconds when the current transitional state was entered. */
   enteredAt: number | null;
+  /** Auto-captured info about the attaching session (null when not attached). */
+  sessionInfo: SessionInfo | null;
+  /** Arbitrary metadata the caller passed via `wt up --meta` (e.g. an agent's
+   * session id). Informational; null when not attached or none provided. */
+  sessionMeta: Record<string, unknown> | null;
 }
 
 export interface State {

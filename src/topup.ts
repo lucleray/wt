@@ -98,6 +98,8 @@ async function topupRepoLocked(
             attachedAt: null,
             workerPid: process.pid,
             enteredAt: now(),
+            sessionInfo: null,
+            sessionMeta: null,
           };
           state.worktrees.push(placeholder);
           return { kind: "build", placeholderId: placeholder.id };
@@ -129,6 +131,8 @@ async function topupRepoLocked(
             w.attachedAt = null;
             w.workerPid = null;
             w.enteredAt = null;
+            w.sessionInfo = null;
+            w.sessionMeta = null;
           }
         });
       } catch {

@@ -48,6 +48,10 @@ Options:
   --json        Machine-readable output
   --path-only   (up) Print only the worktree path
   --skip-setup  (up) On a cold build, skip the repo's setup script
+  --meta <json> (up) Attach caller metadata as a JSON object; stored on the
+                worktree and shown in 'wt list --json'. Handy for agents to
+                tag a worktree with e.g. a session id so they can find it
+                later: --meta '{"sessionId":"abc123","task":"luc/feature"}'
   --force       (down) Release even if the worktree has unsaved work
 
 config <repo> flags (non-interactive — for agents/scripts):
@@ -92,6 +96,7 @@ async function main(): Promise<void> {
       json: { type: "boolean" },
       "path-only": { type: "boolean" },
       "skip-setup": { type: "boolean" },
+      meta: { type: "string" },
       force: { type: "boolean" },
       source: { type: "string" },
       name: { type: "string" },
@@ -111,6 +116,7 @@ async function main(): Promise<void> {
     json: values.json as boolean | undefined,
     pathOnly: values["path-only"] as boolean | undefined,
     skipSetup: values["skip-setup"] as boolean | undefined,
+    meta: values.meta as string | undefined,
     force: values.force as boolean | undefined,
     source: values.source as string | undefined,
     name: values.name as string | undefined,

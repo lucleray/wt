@@ -119,6 +119,65 @@ test("list renders a ready (warm pool) worktree from state, no live git read", a
   assert.equal(ready.liveCommit, ready.baseCommit.slice(0, 11));
 });
 
+test("cold start records auto session info (no --meta passed)", () => {
+  // The bootstrap `up` was run by execFileSync("node", ...), so the attaching
+  // session is this test process — a real, live pid > 1.
+  const w = listJson().find((x) => x.status === "attached");
+  assert.ok(w, "expected an attached worktree");
+  assert.ok(w.sessionInfo, "attached worktree should have sessionInfo");
+  assert.equal(typeof w.sessionInfo.pid, "number");
+  assert.ok(w.sessionInfo.pid > 1, "pid should be a real process id");
+  assert.ok(w.sessionInfo.cwd, "sessionInfo should record a cwd");
+  assert.equal(w.sessionMeta, null, "no --meta means sessionMeta is null");
+});
+
+test("ready (warm pool) worktrees carry no session info", async () => {
+  let ready;
+  for (let i = 0; i < 50; i++) {
+    ready = listJson().find((w) => w.status === "ready");
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  assert.ok(ready, "expected a ready worktree from the background top-up");
+  assert.equal(ready.sessionInfo, null);
+  assert.equal(ready.sessionMeta, null);
+});
+
+test("up --meta stores caller metadata, surfaced in up + list --json", () => {
+  const meta = { sessionId: "sess-abc", task: "luc/feature" };
+  const r = wt(["up", repo, "--json", "--meta", JSON.stringify(meta)]);
+  assert.equal(r.code, 0, `up --meta failed: ${r.stderr}`);
+  const up = JSON.parse(r.stdout);
+  assert.deepEqual(up.sessionMeta, meta, "up --json echoes sessionMeta");
+  assert.ok(up.sessionInfo && typeof up.sessionInfo.pid === "number");
+
+  // And it's queryable from list --json (how an agent finds its worktree).
+  const listed = listJson().find(
+    (w) => w.sessionMeta && w.sessionMeta.sessionId === "sess-abc",
+  );
+  assert.ok(listed, "should find the worktree by its sessionMeta");
+  assert.equal(listed.id, up.id);
+
+  // Release it so it doesn't interfere with later tests; meta clears on down.
+  const down = wt(["down", up.id, "--force"]);
+  assert.equal(down.code, 0, `down failed: ${down.stderr}`);
+  const after = listJson().find((w) => w.id === up.id);
+  if (after) {
+    assert.equal(after.sessionMeta, null, "down clears sessionMeta");
+    assert.equal(after.sessionInfo, null, "down clears sessionInfo");
+  }
+});
+
+test("up --meta rejects non-object / invalid JSON before attaching", () => {
+  const bad = wt(["up", repo, "--path-only", "--meta", "not json"]);
+  assert.equal(bad.code, 1, "invalid JSON should fail");
+  assert.match(bad.stderr, /--meta must be a JSON object/);
+
+  const arr = wt(["up", repo, "--path-only", "--meta", "[1,2]"]);
+  assert.equal(arr.code, 1, "a JSON array is not an object");
+  assert.match(arr.stderr, /--meta must be a JSON object/);
+});
+
 /** Find the attached worktree we put on feature/x in an earlier test. */
 function featureWorktree() {
   const w = listJson().find((x) => x.liveBranch === "feature/x");

@@ -18,6 +18,7 @@ wt up app                           # by alias (once configured)
 wt up ~/code/acme-app --path-only   # print only the path (for cd "$(...)")
 wt up ~/code/acme-app --skip-setup  # cold build without running the setup script
 wt up ~/code/acme-app --json
+wt up ~/code/acme-app --meta '{"sessionId":"abc123"}'  # tag with caller metadata
 
 # typical: get a worktree, cd in, branch
 cd "$(wt up ~/code/acme-app --path-only)" && git switch -c feature/login
@@ -40,6 +41,22 @@ get a usable checkout immediately and can run setup yourself later. If a warm
 worktree is already available, the flag has no effect (it was set up at warm
 time). Releasing a skipped worktree with `wt down` lets the background top-up
 run setup and heal it back to a fully-ready state.
+
+`--meta <json>` attaches a JSON object of caller metadata to the worktree. It's
+stored on the worktree record and surfaced in `wt list --json` as `sessionMeta`,
+alongside an auto-captured `sessionInfo` (the attaching process's pid, process
+name, command, and cwd). Agents use this to tag a worktree with e.g. their
+session id, then find it again later:
+
+```sh
+wt up ~/code/acme-app --path-only --meta '{"sessionId":"abc123","task":"luc/feature"}'
+# later:
+wt list --json | jq '.[] | select(.sessionMeta.sessionId == "abc123")'
+```
+
+Both `sessionInfo` and `sessionMeta` are informational only (never used to
+reclaim a worktree) and are cleared on `wt down`. The value must be a JSON
+object — a malformed `--meta` makes `wt up` fail before handing out a worktree.
 
 ## `wt down [<id>]`
 
@@ -75,10 +92,11 @@ in-flight builds (shown as `setting up`). Status values:
 - `removing` — being torn down
 
 The **BRANCH** column shows the live checked-out branch (or `<base>~ (commit)`
-when detached), read straight from the worktree. The **WORK** column flags
-anything recycling would lose: `clean`, `uncommitted`, `unpushed`, or a
-combination (e.g. `uncommitted+unpushed`). `--json` adds `liveBranch`,
-`liveCommit`, `dirty`, `hasUpstream`, `ahead`, `behind`, and `unsavedWork`.
+when detached), read straight from the worktree via cheap git plumbing — listing
+does **not** run `git status` (that scan is what `wt down` uses to guard against
+discarding unsaved work). `--json` adds `liveBranch`, `liveCommit`, `ahead`,
+`behind`, and the attach metadata `sessionInfo` / `sessionMeta` (see `wt up
+--meta`).
 
 ```sh
 wt list
