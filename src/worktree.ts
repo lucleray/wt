@@ -204,25 +204,51 @@ export function headInfo(path: string): HeadInfo {
   return parsePorcelainV2(res.stdout);
 }
 
+/** A worktree's branch identity, without the cost of a working-tree scan. */
+export interface BranchInfo {
+  /** Checked-out branch name, or null if HEAD is detached. */
+  branch: string | null;
+  /** Short commit HEAD points at, or null if it can't be read. */
+  commit: string | null;
+  /** Commits ahead of upstream (0 if none / no upstream). */
+  ahead: number;
+  /** Commits behind upstream (0 if none / no upstream). */
+  behind: number;
+}
+
 /**
- * Async sibling of `headInfo`, so `wt list` can read many worktrees' HEADs
- * concurrently instead of blocking on each `git status` in turn. Shares the
- * porcelain-v2 parsing so the two can never drift.
+ * Read just a worktree's branch identity (branch, commit, ahead/behind) using
+ * git plumbing, with no `git status`. `wt list` only displays this, and the
+ * working-tree scan that `git status` does to detect dirtiness is by far the
+ * most expensive part — skipping it makes listing many worktrees cheap. Async
+ * so callers can fan reads out concurrently. (`wt down`'s safety check still
+ * uses the full `headInfo` to refuse releasing unsaved work.)
  */
-export async function headInfoAsync(path: string): Promise<HeadInfo> {
-  if (!path || !existsSync(path)) return { ...EMPTY_HEAD };
-  const res = await runAsync("git", [
-    "-C",
-    path,
-    "status",
-    "--porcelain=v2",
-    "--branch",
+export async function branchInfoAsync(path: string): Promise<BranchInfo> {
+  const empty: BranchInfo = { branch: null, commit: null, ahead: 0, behind: 0 };
+  if (!path || !existsSync(path)) return empty;
+
+  // symbolic-ref succeeds only when a branch is checked out; a non-zero exit
+  // means HEAD is detached, which we represent as a null branch.
+  const [ref, rev, ab] = await Promise.all([
+    runAsync("git", ["-C", path, "symbolic-ref", "--short", "-q", "HEAD"]),
+    runAsync("git", ["-C", path, "rev-parse", "--short", "HEAD"]),
+    runAsync("git", ["-C", path, "rev-list", "--count", "--left-right", "@{u}...HEAD"]),
   ]);
-  if (res.code !== 0) {
-    const rev = await runAsync("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
-    return headFallback(rev.code === 0 ? rev.stdout : null);
+
+  const branch = ref.code === 0 ? ref.stdout.trim() || null : null;
+  const commit = rev.code === 0 ? rev.stdout.trim() || null : null;
+  let ahead = 0;
+  let behind = 0;
+  if (ab.code === 0) {
+    // Output: "<behind>\t<ahead>" for @{u}...HEAD (left = upstream-only).
+    const m = ab.stdout.trim().match(/^(\d+)\s+(\d+)$/);
+    if (m) {
+      behind = parseInt(m[1], 10);
+      ahead = parseInt(m[2], 10);
+    }
   }
-  return parsePorcelainV2(res.stdout);
+  return { branch, commit, ahead, behind };
 }
 
 /** HeadInfo for the no-commits / status-failed case: best-effort short commit. */

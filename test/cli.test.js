@@ -88,19 +88,17 @@ test("list reports the bootstrapped worktree as clean + detached", () => {
   assert.ok(real.length >= 1, "expected at least one real worktree");
   const w = real[0];
   assert.equal(w.liveBranch, null, "fresh worktree should be detached");
-  assert.equal(w.unsavedWork, false, "fresh worktree should have no unsaved work");
-  assert.equal(w.dirty, false);
+  assert.ok(w.liveCommit, "fresh worktree should report a commit");
 });
 
-test("list surfaces a created branch with uncommitted + unpushed work", () => {
+test("list surfaces a created branch from the live HEAD", () => {
   const w = listJson().find((x) => !x.id.startsWith("pending-"));
   git(w.path, "switch", "-c", "feature/x", "-q");
   writeFileSync(join(w.path, "new.txt"), "hi\n");
 
+  // list reads the live branch via cheap plumbing (no git status / dirtiness).
   const after = listJson().find((x) => x.id === w.id);
   assert.equal(after.liveBranch, "feature/x");
-  assert.equal(after.dirty, true, "uncommitted change should be dirty");
-  assert.equal(after.unsavedWork, true);
 });
 
 test("list renders a ready (warm pool) worktree from state, no live git read", async () => {
@@ -114,18 +112,23 @@ test("list renders a ready (warm pool) worktree from state, no live git read", a
   }
   assert.ok(ready, "expected a ready worktree from the background top-up");
 
-  // Rendered straight from state: detached on base, clean, no unsaved work.
+  // Rendered straight from state: detached on base.
   assert.equal(ready.liveBranch, null, "ready worktree should be detached");
-  assert.equal(ready.dirty, false, "ready worktree should be clean");
-  assert.equal(ready.unsavedWork, false);
   // The reported commit comes from the stored baseCommit (short form).
   assert.ok(ready.baseCommit, "ready worktree should have a stored baseCommit");
   assert.equal(ready.liveCommit, ready.baseCommit.slice(0, 11));
 });
 
+/** Find the attached worktree we put on feature/x in an earlier test. */
+function featureWorktree() {
+  const w = listJson().find((x) => x.liveBranch === "feature/x");
+  assert.ok(w, "expected the feature/x worktree from a previous test");
+  return w;
+}
+
 test("down refuses a worktree with unsaved work, leaving state intact", () => {
-  const w = listJson().find((x) => x.unsavedWork);
-  assert.ok(w, "expected a worktree with unsaved work from previous test");
+  // The feature/x worktree still has an uncommitted new.txt from earlier.
+  const w = featureWorktree();
 
   const r = wt(["down", w.id]);
   assert.equal(r.code, 1, "down should fail on unsaved work");
@@ -138,7 +141,7 @@ test("down refuses a worktree with unsaved work, leaving state intact", () => {
 });
 
 test("down --force releases it; the branch survives in the source repo", () => {
-  const w = listJson().find((x) => x.unsavedWork);
+  const w = featureWorktree();
   // Commit so the branch ref persists after the worktree is reset.
   git(w.path, "add", "-A");
   git(w.path, "commit", "-qm", "work");

@@ -26,9 +26,9 @@ import {
   detach,
   worktreeExistsOnDisk,
   headInfo,
-  headInfoAsync,
-  EMPTY_HEAD,
+  branchInfoAsync,
   type HeadInfo,
+  type BranchInfo,
 } from "./worktree.js";
 import { topupRepo } from "./topup.js";
 import {
@@ -303,16 +303,16 @@ function statusLabel(status: string): string {
  * Otherwise HEAD is detached; show e.g. "main~ (a1b2c3d)" to convey "detached,
  * based on <base>, at this commit".
  */
-function branchLabel(head: HeadInfo, baseBranch: string): string {
-  if (head.branch) return head.branch;
-  const commit = head.commit ? ` (${head.commit})` : "";
+function branchLabel(info: BranchInfo, baseBranch: string): string {
+  if (info.branch) return info.branch;
+  const commit = info.commit ? ` (${info.commit})` : "";
   return `${baseBranch}~${commit}`;
 }
 
 /**
- * Work column: a quick read of whether the worktree has anything worth saving
- * before it's recycled. Combines uncommitted changes and unpushed commits so a
- * `wt down` is never a surprise.
+ * Work summary for `wt down`: a quick read of whether the worktree has anything
+ * worth saving before it's recycled. Combines uncommitted changes and unpushed
+ * commits so a release is never a surprise.
  */
 function workLabel(head: HeadInfo): string {
   const parts: string[] = [];
@@ -329,29 +329,30 @@ function workLabel(head: HeadInfo): string {
 }
 
 /**
- * Whether `wt list` needs to shell out to git for this worktree's live HEAD.
+ * Whether `wt list` needs to shell out to git for this worktree's live branch.
  *
  * Only worktrees a user could have touched can diverge from what state.json
- * already knows. `attached` ones were handed out (branch/commit/dirty may have
- * changed) and `needs-resetup` ones were released but not yet recycled (could
- * still briefly hold unpushed work). Everything else — `ready` (freshly built
- * or reset from base, detached, `git clean`'d, never handed out), plus the
- * transient `building`/`resetting`/`destroying` states — has a known HEAD we
- * can render straight from state, skipping a full-tree `git status` entirely.
+ * already knows. `attached` ones were handed out (they may have a new branch /
+ * commit) and `needs-resetup` ones were released but not yet recycled. Everything
+ * else — `ready` (freshly built or reset from base, detached, never handed out),
+ * plus the transient `building`/`resetting`/`destroying` states — has a known
+ * HEAD we render straight from state, with no git call at all.
  */
-function needsLiveHead(w: Worktree): boolean {
+function needsLiveBranch(w: Worktree): boolean {
   return w.status === "attached" || w.status === "needs-resetup";
 }
 
 /**
- * Synthesize a HeadInfo from stored state for worktrees we don't read live.
- * Such worktrees are detached at their base commit and clean by construction,
- * so this mirrors what a live `git status` would report without the cost.
+ * Synthesize a BranchInfo from stored state for worktrees we don't read live.
+ * They're detached at their base commit, so this mirrors a live read's branch
+ * identity without the cost.
  */
-function headFromState(w: Worktree): HeadInfo {
+function branchFromState(w: Worktree): BranchInfo {
   return {
-    ...EMPTY_HEAD,
+    branch: null,
     commit: w.baseCommit ? w.baseCommit.slice(0, 11) : null,
+    ahead: 0,
+    behind: 0,
   };
 }
 
@@ -400,41 +401,38 @@ export async function cmdList(
     return (b.warmedAt ?? 0) - (a.warmedAt ?? 0);
   });
 
-  // Resolve each worktree's HEAD. For worktrees a user could have touched
-  // (attached / needs-resetup) we read the *actual* branch / commit off disk,
-  // since the user may have created a branch after we handed it out. Everything
-  // else has a known HEAD (detached on base, clean) we render straight from
-  // state — no `git status`, which is the expensive part of `wt list`.
-  const heads = new Map<string, HeadInfo>();
-  // Known-state worktrees render from state with no git call. The rest get a
-  // live read, fanned out concurrently so we don't block on each in turn.
+  // Resolve each worktree's branch identity. For worktrees a user could have
+  // touched (attached / needs-resetup) we read the *actual* branch / commit off
+  // disk via cheap git plumbing — no `git status`, whose working-tree scan is
+  // the expensive part of listing. Everything else has a known HEAD (detached
+  // on base) we render straight from state with no git call at all. Live reads
+  // are fanned out concurrently so we don't block on each in turn.
+  const branches = new Map<string, BranchInfo>();
   const live: Worktree[] = [];
   for (const w of wts) {
-    if (!needsLiveHead(w)) heads.set(w.id, headFromState(w));
+    if (!needsLiveBranch(w)) branches.set(w.id, branchFromState(w));
     else live.push(w);
   }
   await Promise.all(
     live.map(async (w) => {
-      heads.set(w.id, await headInfoAsync(w.path));
+      branches.set(w.id, await branchInfoAsync(w.path));
     }),
   );
-  const headFor = (w: Worktree): HeadInfo =>
-    heads.get(w.id) ?? { ...EMPTY_HEAD };
+  const branchFor = (w: Worktree): BranchInfo =>
+    branches.get(w.id) ?? { branch: null, commit: null, ahead: 0, behind: 0 };
 
   if (opts.json) {
-    // Surface the live HEAD alongside the stored state so JSON consumers see
-    // the truth too. `liveBranch` is the checked-out branch (or null/detached).
+    // Surface the live branch identity alongside the stored state. `liveBranch`
+    // is the checked-out branch (or null when detached). Dirtiness is not
+    // reported here — `wt down` does the full check when it matters.
     const enriched = wts.map((w) => {
-      const h = headFor(w);
+      const b = branchFor(w);
       return {
         ...w,
-        liveBranch: h.branch,
-        liveCommit: h.commit,
-        dirty: h.dirty,
-        hasUpstream: h.hasUpstream,
-        ahead: h.ahead,
-        behind: h.behind,
-        unsavedWork: hasUnsavedWork(h),
+        liveBranch: b.branch,
+        liveCommit: b.commit,
+        ahead: b.ahead,
+        behind: b.behind,
       };
     });
     out(true, enriched, "");
@@ -448,12 +446,11 @@ export async function cmdList(
     w.id.startsWith("pending-") ? "—" : w.id,
     display(w.repo),
     statusLabel(w.status),
-    branchLabel(headFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
-    workLabel(headFor(w)),
+    branchLabel(branchFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
     w.warmedAt ? humanAge(w.warmedAt) : "—",
     w.path ? tildify(w.path) : "(building)",
   ]);
-  printTable(["ID", "REPO", "STATUS", "BRANCH", "WORK", "AGE", "PATH"], rows);
+  printTable(["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"], rows);
 }
 
 // ---- prewarm ----
