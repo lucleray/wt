@@ -1,6 +1,6 @@
 import { mkdirSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { run, runOrThrow, runShell, shortId } from "./util.js";
+import { run, runAsync, runOrThrow, runShell, shortId } from "./util.js";
 import { withNamedLockSync } from "./state.js";
 import type { Config, RepoConfig } from "./config.js";
 import type { Worktree } from "./state.js";
@@ -181,7 +181,23 @@ export function headInfo(path: string): HeadInfo {
   if (!path || !existsSync(path)) return { ...EMPTY_HEAD };
 
   // One call gives branch, upstream, ahead/behind, and dirty state.
-  const res = run("git", [
+  const res = run("git", ["-C", path, "status", "--porcelain=v2", "--branch"]);
+  if (res.code !== 0) {
+    // Fall back to a bare HEAD read (e.g. brand-new repo with no commits).
+    const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
+    return headFallback(rev.code === 0 ? rev.stdout : null);
+  }
+  return parsePorcelainV2(res.stdout);
+}
+
+/**
+ * Async sibling of `headInfo`, so `wt list` can read many worktrees' HEADs
+ * concurrently instead of blocking on each `git status` in turn. Shares the
+ * porcelain-v2 parsing so the two can never drift.
+ */
+export async function headInfoAsync(path: string): Promise<HeadInfo> {
+  if (!path || !existsSync(path)) return { ...EMPTY_HEAD };
+  const res = await runAsync("git", [
     "-C",
     path,
     "status",
@@ -189,14 +205,22 @@ export function headInfo(path: string): HeadInfo {
     "--branch",
   ]);
   if (res.code !== 0) {
-    // Fall back to a bare HEAD read (e.g. brand-new repo with no commits).
-    const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
-    return {
-      ...EMPTY_HEAD,
-      commit: rev.code === 0 ? rev.stdout.trim() || null : null,
-    };
+    const rev = await runAsync("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
+    return headFallback(rev.code === 0 ? rev.stdout : null);
   }
+  return parsePorcelainV2(res.stdout);
+}
 
+/** HeadInfo for the no-commits / status-failed case: best-effort short commit. */
+function headFallback(revStdout: string | null): HeadInfo {
+  return {
+    ...EMPTY_HEAD,
+    commit: revStdout ? revStdout.trim() || null : null,
+  };
+}
+
+/** Parse `git status --porcelain=v2 --branch` output into a HeadInfo. */
+function parsePorcelainV2(stdout: string): HeadInfo {
   let branch: string | null = null;
   let commit: string | null = null;
   let hasUpstream = false;
@@ -204,7 +228,7 @@ export function headInfo(path: string): HeadInfo {
   let behind = 0;
   let dirty = false;
 
-  for (const line of res.stdout.split("\n")) {
+  for (const line of stdout.split("\n")) {
     if (line.startsWith("# branch.head ")) {
       const v = line.slice("# branch.head ".length).trim();
       branch = v === "(detached)" ? null : v;

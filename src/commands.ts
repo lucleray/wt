@@ -26,6 +26,7 @@ import {
   detach,
   worktreeExistsOnDisk,
   headInfo,
+  headInfoAsync,
   EMPTY_HEAD,
   type HeadInfo,
 } from "./worktree.js";
@@ -405,10 +406,18 @@ export async function cmdList(
   // else has a known HEAD (detached on base, clean) we render straight from
   // state — no `git status`, which is the expensive part of `wt list`.
   const heads = new Map<string, HeadInfo>();
+  // Known-state worktrees render from state with no git call. The rest get a
+  // live read, fanned out concurrently so we don't block on each in turn.
+  const live: Worktree[] = [];
   for (const w of wts) {
     if (!needsLiveHead(w)) heads.set(w.id, headFromState(w));
-    else heads.set(w.id, headInfo(w.path));
+    else live.push(w);
   }
+  await Promise.all(
+    live.map(async (w) => {
+      heads.set(w.id, await headInfoAsync(w.path));
+    }),
+  );
   const headFor = (w: Worktree): HeadInfo =>
     heads.get(w.id) ?? { ...EMPTY_HEAD };
 

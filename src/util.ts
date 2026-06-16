@@ -93,6 +93,30 @@ export function run(
   };
 }
 
+/**
+ * Run a command asynchronously, capturing output. Mirrors `run`'s RunResult so
+ * callers can fan out many invocations concurrently (e.g. reading several
+ * worktrees' HEADs at once) instead of blocking on each spawnSync in turn.
+ */
+export function runAsync(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<RunResult> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (d) => (stdout += d.toString()));
+    child.stderr?.on("data", (d) => (stderr += d.toString()));
+    child.on("error", () => resolve({ code: 1, stdout, stderr }));
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+}
+
 /** Run a command, throwing on non-zero exit. Returns trimmed stdout. */
 export function runOrThrow(
   cmd: string,
