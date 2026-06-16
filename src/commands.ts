@@ -327,6 +327,33 @@ function workLabel(head: HeadInfo): string {
   return parts.length ? parts.join("+") : "clean";
 }
 
+/**
+ * Whether `wt list` needs to shell out to git for this worktree's live HEAD.
+ *
+ * Only worktrees a user could have touched can diverge from what state.json
+ * already knows. `attached` ones were handed out (branch/commit/dirty may have
+ * changed) and `needs-resetup` ones were released but not yet recycled (could
+ * still briefly hold unpushed work). Everything else — `ready` (freshly built
+ * or reset from base, detached, `git clean`'d, never handed out), plus the
+ * transient `building`/`resetting`/`destroying` states — has a known HEAD we
+ * can render straight from state, skipping a full-tree `git status` entirely.
+ */
+function needsLiveHead(w: Worktree): boolean {
+  return w.status === "attached" || w.status === "needs-resetup";
+}
+
+/**
+ * Synthesize a HeadInfo from stored state for worktrees we don't read live.
+ * Such worktrees are detached at their base commit and clean by construction,
+ * so this mirrors what a live `git status` would report without the cost.
+ */
+function headFromState(w: Worktree): HeadInfo {
+  return {
+    ...EMPTY_HEAD,
+    commit: w.baseCommit ? w.baseCommit.slice(0, 11) : null,
+  };
+}
+
 /** True when a worktree holds work that recycling would blow away. */
 export function hasUnsavedWork(head: HeadInfo): boolean {
   if (head.dirty) return true;
@@ -372,11 +399,16 @@ export async function cmdList(
     return (b.warmedAt ?? 0) - (a.warmedAt ?? 0);
   });
 
-  // Read each worktree's live HEAD off disk so we report the *actual* branch /
-  // commit, not the stale `branch` in state (the user may have created a branch
-  // after we handed the worktree out).
+  // Resolve each worktree's HEAD. For worktrees a user could have touched
+  // (attached / needs-resetup) we read the *actual* branch / commit off disk,
+  // since the user may have created a branch after we handed it out. Everything
+  // else has a known HEAD (detached on base, clean) we render straight from
+  // state — no `git status`, which is the expensive part of `wt list`.
   const heads = new Map<string, HeadInfo>();
-  for (const w of wts) heads.set(w.id, headInfo(w.path));
+  for (const w of wts) {
+    if (!needsLiveHead(w)) heads.set(w.id, headFromState(w));
+    else heads.set(w.id, headInfo(w.path));
+  }
   const headFor = (w: Worktree): HeadInfo =>
     heads.get(w.id) ?? { ...EMPTY_HEAD };
 

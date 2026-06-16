@@ -103,6 +103,26 @@ test("list surfaces a created branch with uncommitted + unpushed work", () => {
   assert.equal(after.unsavedWork, true);
 });
 
+test("list renders a ready (warm pool) worktree from state, no live git read", async () => {
+  // The cold-start `up` triggers a background top-up that builds a warm,
+  // never-handed-out `ready` worktree. Wait for one to appear.
+  let ready;
+  for (let i = 0; i < 50; i++) {
+    ready = listJson().find((w) => w.status === "ready");
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  assert.ok(ready, "expected a ready worktree from the background top-up");
+
+  // Rendered straight from state: detached on base, clean, no unsaved work.
+  assert.equal(ready.liveBranch, null, "ready worktree should be detached");
+  assert.equal(ready.dirty, false, "ready worktree should be clean");
+  assert.equal(ready.unsavedWork, false);
+  // The reported commit comes from the stored baseCommit (short form).
+  assert.ok(ready.baseCommit, "ready worktree should have a stored baseCommit");
+  assert.equal(ready.liveCommit, ready.baseCommit.slice(0, 11));
+});
+
 test("down refuses a worktree with unsaved work, leaving state intact", () => {
   const w = listJson().find((x) => x.unsavedWork);
   assert.ok(w, "expected a worktree with unsaved work from previous test");
