@@ -158,6 +158,13 @@ test("down with an unknown id errors clearly", () => {
   assert.match(r.stderr, /no worktree with id "nope"/);
 });
 
+test("build enables core.untrackedCache on the worktree", () => {
+  const w = listJson().find((x) => !x.id.startsWith("pending-") && x.path);
+  assert.ok(w, "expected at least one built worktree");
+  const v = git(w.path, "config", "--get", "core.untrackedCache");
+  assert.equal(v, "true", "build should enable core.untrackedCache");
+});
+
 test("build drops a Spotlight .metadata_never_index marker at the pool root", () => {
   // A worktree was built by the cold-start test above, so the marker that
   // buildWorktree() writes at the pool root must be present.

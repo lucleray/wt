@@ -87,9 +87,22 @@ export function buildWorktree(
     ]);
     return resolveCommit(repo, ref);
   });
+  enableUntrackedCache(path);
   if (!skipSetup) runSetup(repo, path);
 
   return { id, path, baseCommit };
+}
+
+/**
+ * Enable git's untracked cache for a worktree so later `git status` calls
+ * (notably `wt list` and `wt down`'s safety check) don't re-stat the entire
+ * working tree — they reuse cached results for unchanged directories. Worktrees
+ * carry huge ignored trees (node_modules etc), so this turns repeat status
+ * reads from a full filesystem walk into a near-no-op. The cache is purely an
+ * accuracy-preserving optimization; best-effort, so ignore failures.
+ */
+function enableUntrackedCache(path: string): void {
+  run("git", ["-C", path, "config", "core.untrackedCache", "true"]);
 }
 
 /** Reset an existing worktree back to base and re-run setup (reuse path). */
@@ -103,6 +116,7 @@ export function resetupWorktree(repo: RepoConfig, wt: Worktree): string {
   runOrThrow("git", ["-C", wt.path, "reset", "--hard", ref]);
   // Clean untracked files but preserve ignored ones (node_modules etc).
   runOrThrow("git", ["-C", wt.path, "clean", "-fd"]);
+  enableUntrackedCache(wt.path);
   runSetup(repo, wt.path);
   return resolveCommit(repo, ref);
 }
