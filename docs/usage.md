@@ -121,6 +121,10 @@ discarding unsaved work). `--json` adds `liveBranch`, `liveCommit`, `ahead`,
 `behind`, and the attach metadata `sessionInfo` / `sessionMeta` (see `wt up
 --meta`).
 
+The **AGE** column is time spent in the displayed status: attachment age for
+`in use`, warm age for `ready`, and transition age while recycling, setting up,
+or removing a worktree.
+
 ```sh
 wt list
 wt list app

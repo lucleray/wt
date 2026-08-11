@@ -310,7 +310,7 @@ async function releaseFoundWorktree(found: Worktree): Promise<Worktree | null> {
     wt.owner = null;
     wt.attachedAt = null;
     wt.workerPid = null;
-    wt.enteredAt = null;
+    wt.enteredAt = now();
     wt.sessionInfo = null;
     wt.sessionMeta = null;
     return { ...wt };
@@ -545,6 +545,22 @@ function branchFromState(w: Worktree): BranchInfo {
   };
 }
 
+/** Timestamp when the worktree entered the status displayed by `wt list`. */
+function statusSince(w: Worktree): number | null {
+  switch (w.status) {
+    case "attached":
+      return w.attachedAt;
+    case "needs-resetup":
+    case "resetting":
+    case "building":
+    case "destroying":
+      return w.enteredAt ?? w.warmedAt;
+    case "ready":
+    default:
+      return w.warmedAt;
+  }
+}
+
 /** True when a worktree holds work that recycling would blow away. */
 export function hasUnsavedWork(head: HeadInfo): boolean {
   if (head.dirty) return true;
@@ -591,7 +607,7 @@ export async function cmdList(
     const oa = order.indexOf(a.status);
     const ob = order.indexOf(b.status);
     if (oa !== ob) return oa - ob;
-    return (b.warmedAt ?? 0) - (a.warmedAt ?? 0);
+    return (statusSince(b) ?? 0) - (statusSince(a) ?? 0);
   });
 
   // Resolve each worktree's branch identity. For worktrees a user could have
@@ -635,14 +651,17 @@ export async function cmdList(
     process.stdout.write("no worktrees — run `wt up <repo>` to get one\n");
     return;
   }
-  const rows = wts.map((w) => [
-    w.id.startsWith("pending-") ? "—" : w.id,
-    display(w.repo),
-    statusLabel(w.status),
-    branchLabel(branchFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
-    w.warmedAt ? humanAge(w.warmedAt) : "—",
-    w.path ? tildify(w.path) : "(building)",
-  ]);
+  const rows = wts.map((w) => {
+    const since = statusSince(w);
+    return [
+      w.id.startsWith("pending-") ? "—" : w.id,
+      display(w.repo),
+      statusLabel(w.status),
+      branchLabel(branchFor(w), bySlug.get(w.repo)?.baseBranch ?? "main"),
+      since ? humanAge(since) : "—",
+      w.path ? tildify(w.path) : "(building)",
+    ];
+  });
   printTable(["ID", "REPO", "STATUS", "BRANCH", "AGE", "PATH"], rows);
 }
 

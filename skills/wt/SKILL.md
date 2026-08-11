@@ -93,7 +93,9 @@ pushed to a remote. This guard is intentional:
 - Only use `wt down --force` when the user explicitly wants to discard the
   worktree's state (the branch ref still survives in the source repo, so
   committed work remains recoverable).
-- `wt list` shows each worktree's id, repo, status, branch, age, and path.
+- `wt list` shows each worktree's id, repo, status, branch, age, and path. Age
+  means time in the displayed status (attached age for `in use`, warm age for
+  `ready`).
   `--json` adds `liveBranch`, `liveCommit`, `ahead`, and `behind`. (Listing is
   cheap and does **not** run `git status`; `wt down` does the full unsaved-work
   check when it actually matters.)

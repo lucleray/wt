@@ -5,7 +5,13 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +52,14 @@ function listJson(repoArg) {
   const r = wt(repoArg ? ["list", repoArg, "--json"] : ["list", "--json"]);
   assert.equal(r.code, 0, `list --json failed: ${r.stderr}`);
   return JSON.parse(r.stdout || "[]");
+}
+
+/** Mutate the isolated wt state for timestamp-focused CLI assertions. */
+function updateState(fn) {
+  const path = join(cfgDir, "state.json");
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  fn(state);
+  writeFileSync(path, JSON.stringify(state, null, 2));
 }
 
 before(() => {
@@ -346,6 +360,43 @@ test("cleanup requires a valid age and rejects conflicting modes", () => {
   ]);
   assert.equal(conflicting.code, 1);
   assert.match(conflicting.stderr, /cannot combine/);
+});
+
+test("list age reflects the current worktree status", async () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const attached = JSON.parse(up.stdout);
+
+  let ready;
+  for (let i = 0; i < 50; i++) {
+    ready = listJson(repo).find((w) => w.status === "ready");
+    if (ready) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(ready, "expected a ready worktree for age comparison");
+
+  const now = Math.floor(Date.now() / 1000);
+  updateState((state) => {
+    const attachedState = state.worktrees.find((w) => w.id === attached.id);
+    const readyState = state.worktrees.find((w) => w.id === ready.id);
+    attachedState.warmedAt = now - 10 * 24 * 60 * 60;
+    attachedState.attachedAt = now - 2 * 60 * 60;
+    readyState.warmedAt = now - 4 * 24 * 60 * 60;
+  });
+
+  const listed = wt(["list", repo]);
+  assert.equal(listed.code, 0, `list failed: ${listed.stderr}`);
+  const attachedLine = listed.stdout
+    .split("\n")
+    .find((line) => line.startsWith(attached.id));
+  const readyLine = listed.stdout
+    .split("\n")
+    .find((line) => line.startsWith(ready.id));
+  assert.match(attachedLine, /2h ago/, "attached age should use attachedAt");
+  assert.match(readyLine, /4d ago/, "ready age should use warmedAt");
+
+  const down = wt(["down", attached.id]);
+  assert.equal(down.code, 0, `age test teardown failed: ${down.stderr}`);
 });
 
 test("down with an unknown id errors clearly", () => {
