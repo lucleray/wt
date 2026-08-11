@@ -173,6 +173,8 @@ export interface HeadInfo {
   ahead: number;
   /** Commits behind upstream (0 if none / no upstream). */
   behind: number;
+  /** Whether HEAD is reachable from any local remote-tracking ref. */
+  remoteContainsHead: boolean;
 }
 
 export const EMPTY_HEAD: HeadInfo = {
@@ -182,6 +184,7 @@ export const EMPTY_HEAD: HeadInfo = {
   hasUpstream: false,
   ahead: 0,
   behind: 0,
+  remoteContainsHead: false,
 };
 
 /**
@@ -201,7 +204,28 @@ export function headInfo(path: string): HeadInfo {
     const rev = run("git", ["-C", path, "rev-parse", "--short", "HEAD"]);
     return headFallback(rev.code === 0 ? rev.stdout : null);
   }
-  return parsePorcelainV2(res.stdout);
+  const head = parsePorcelainV2(res.stdout);
+  // Only pay for the reachability check when the configured upstream would
+  // otherwise make `wt down` classify the branch as unpushed. This catches a
+  // missing or stale upstream while staying fully local and provider-agnostic.
+  if (
+    head.branch &&
+    head.commit &&
+    (!head.hasUpstream || head.ahead > 0)
+  ) {
+    const remote = run("git", [
+      "-C",
+      path,
+      "for-each-ref",
+      "--count=1",
+      "--contains=HEAD",
+      "--format=%(refname)",
+      "refs/remotes",
+    ]);
+    head.remoteContainsHead =
+      remote.code === 0 && remote.stdout.trim().length > 0;
+  }
+  return head;
 }
 
 /** A worktree's branch identity, without the cost of a working-tree scan. */
@@ -290,6 +314,13 @@ function parsePorcelainV2(stdout: string): HeadInfo {
     }
   }
 
-  return { branch, commit, dirty, hasUpstream, ahead, behind };
+  return {
+    branch,
+    commit,
+    dirty,
+    hasUpstream,
+    ahead,
+    behind,
+    remoteContainsHead: false,
+  };
 }
-

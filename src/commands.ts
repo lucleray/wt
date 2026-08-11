@@ -358,9 +358,9 @@ function workLabel(head: HeadInfo): string {
   if (head.branch) {
     if (!head.hasUpstream) {
       // A branch with commits but no remote tracking = unpushed work.
-      if (head.commit) parts.push("unpushed");
+      if (head.commit && !head.remoteContainsHead) parts.push("unpushed");
     } else if (head.ahead > 0) {
-      parts.push(`unpushed:${head.ahead}`);
+      if (!head.remoteContainsHead) parts.push(`unpushed:${head.ahead}`);
     }
   }
   return parts.length ? parts.join("+") : "clean";
@@ -398,7 +398,11 @@ function branchFromState(w: Worktree): BranchInfo {
 export function hasUnsavedWork(head: HeadInfo): boolean {
   if (head.dirty) return true;
   // Commits on a branch that aren't on a remote = unpushed work.
-  if (head.branch && (!head.hasUpstream || head.ahead > 0)) {
+  if (
+    head.branch &&
+    (!head.hasUpstream || head.ahead > 0) &&
+    !head.remoteContainsHead
+  ) {
     return head.commit != null;
   }
   return false;

@@ -80,6 +80,11 @@ branch that aren't pushed to a remote. Commit + push (or stash) first, or pass
 `--force` to release anyway. (The branch ref itself survives in the source repo
 even after a forced release, so committed work is still recoverable.)
 
+The pushed-commit check is not limited to the branch's configured upstream. If
+`HEAD` is reachable from any local remote-tracking ref, `wt down` treats it as
+saved. This covers branches with no upstream or a stale/misconfigured upstream
+without requiring network access.
+
 ## `wt list [<repo>]` (alias: `wt ls`)
 
 List all worktrees and their status, optionally filtered to one repo. Includes

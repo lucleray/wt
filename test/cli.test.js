@@ -16,6 +16,7 @@ const CLI = join(here, "..", "dist", "cli.js");
 let root; // throwaway working area
 let cfgDir; // isolated WT_CONFIG_DIR
 let repo; // a fake git repo to manage
+let remote; // bare remote used to verify pushed-commit safety
 
 /** Run the wt CLI; returns { code, stdout, stderr }. Never throws on non-zero. */
 function wt(args, opts = {}) {
@@ -51,6 +52,7 @@ before(() => {
   root = mkdtempSync(join(tmpdir(), "wt-test-"));
   cfgDir = join(root, "cfg");
   repo = join(root, "repo");
+  remote = join(root, "remote.git");
   // Build a minimal git repo with one commit on main.
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
   git(repo, "config", "user.email", "test@example.com");
@@ -58,6 +60,9 @@ before(() => {
   writeFileSync(join(repo, "README.md"), "# test\n");
   git(repo, "add", "-A");
   git(repo, "commit", "-qm", "init");
+  execFileSync("git", ["init", "--bare", "-q", remote]);
+  git(repo, "remote", "add", "origin", remote);
+  git(repo, "push", "-qu", "origin", "main");
 });
 
 after(async () => {
@@ -212,6 +217,46 @@ test("down --force releases it; the branch survives in the source repo", () => {
   // The branch ref still exists in the source repo (work recoverable).
   const branches = git(repo, "branch", "--list", "feature/x");
   assert.match(branches, /feature\/x/);
+});
+
+test("down accepts a clean branch whose HEAD is on a remote without an upstream", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+  git(w.path, "switch", "-c", "feature/remote-safe", "-q");
+  writeFileSync(join(w.path, "remote-safe.txt"), "safe\n");
+  git(w.path, "add", "-A");
+  git(w.path, "commit", "-qm", "remote safe");
+  git(w.path, "push", "-q", "origin", "HEAD:refs/heads/feature/remote-safe");
+  assert.equal(
+    git(
+      w.path,
+      "for-each-ref",
+      "--format=%(upstream)",
+      "refs/heads/feature/remote-safe",
+    ),
+    "",
+  );
+
+  const down = wt(["down", w.id]);
+  assert.equal(down.code, 0, `down failed: ${down.stderr}`);
+  assert.doesNotMatch(down.stdout, /forced/);
+});
+
+test("down accepts a clean branch whose HEAD is on a non-upstream remote ref", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+  git(w.path, "switch", "-c", "feature/wrong-upstream", "-q");
+  git(w.path, "branch", "--set-upstream-to=origin/main");
+  writeFileSync(join(w.path, "wrong-upstream.txt"), "safe\n");
+  git(w.path, "add", "-A");
+  git(w.path, "commit", "-qm", "wrong upstream");
+  git(w.path, "push", "-q", "origin", "HEAD:refs/heads/feature/wrong-upstream");
+
+  const down = wt(["down", w.id]);
+  assert.equal(down.code, 0, `down failed: ${down.stderr}`);
+  assert.doesNotMatch(down.stdout, /forced/);
 });
 
 test("down with an unknown id errors clearly", () => {
