@@ -32,9 +32,12 @@
   "author": "lucleray",
   "scripts": {
     "build": "tsc",
+    "changeset": "changeset",
     "dev": "tsc --watch",
+    "release": "changeset publish",
     "start": "node dist/cli.js",
     "test": "tsc && node --test",
+    "version-packages": "changeset version",
     "prepublishOnly": "tsc"
   },
   "engines": {
@@ -45,7 +48,9 @@
     "access": "public"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.1",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
-  }
+  },
+  "packageManager": "pnpm@10.29.3"
 }

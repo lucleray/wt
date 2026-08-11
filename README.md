@@ -96,6 +96,12 @@ config dir (your real `~/.wt` is never touched):
 pnpm test
 ```
 
+## Release
+
+Run `pnpm changeset` for user-visible changes and commit the generated file.
+The release workflow keeps a version PR up to date; merging it publishes to npm
+through GitHub OIDC with provenance, so no npm publish token is stored in GitHub.
+
 ## Status
 
 v1 — daemon-less, lazy top-up, reuse-on-release. Designed for a single user
