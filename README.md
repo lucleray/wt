@@ -53,6 +53,7 @@ wt down                                      # release it back to the pool
 | ------------------------ | ----------------------------------------------------------------- |
 | `wt up <repo>`           | Get a ready worktree (instant from pool); `<repo>` = path or alias. |
 | `wt down [<id>]`         | Release a worktree back to the pool (defaults to the cwd's).      |
+| `wt cleanup [<repo>]`    | Preview or release old attached worktrees that are safe to recycle. |
 | `wt list [<repo>]`       | List all worktrees and their status (alias: `wt ls`).             |
 | `wt config`              | Print and validate the config (incl. pool bounds).                |
 | `wt config <repo>`       | Add / edit a repo (interactive, or via flags for agents).         |
@@ -62,6 +63,13 @@ All commands accept `--json` for machine-readable output. `wt up` also accepts
 `--path-only` (print just the path) and `--skip-setup` (on a cold build, skip
 the repo's setup script). `wt down` accepts `--force` (release even with unsaved
 work). See [docs/usage.md](docs/usage.md) for full details.
+
+Old attached worktrees can be audited and safely released in bulk:
+
+```sh
+wt cleanup --older-than 3d --dead-owner          # dry-run
+wt cleanup --older-than 3d --dead-owner --apply  # release safe matches
+```
 
 ## How it works
 

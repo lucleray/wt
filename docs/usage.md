@@ -85,6 +85,24 @@ The pushed-commit check is not limited to the branch's configured upstream. If
 saved. This covers branches with no upstream or a stale/misconfigured upstream
 without requiring network access.
 
+## `wt cleanup [<repo>]`
+
+Audit old attached worktrees and optionally release the ones that pass the same
+safety check as `wt down`. Cleanup is a dry-run unless `--apply` is passed, and
+an age threshold is always required.
+
+```sh
+wt cleanup --older-than 3d                    # preview across all repos
+wt cleanup api --older-than 3d                # preview one repo
+wt cleanup --older-than 3d --dead-owner       # only recorded dead pids
+wt cleanup --older-than 3d --dead-owner --apply
+```
+
+Durations accept `s`, `m`, `h`, `d`, or `w` suffixes. Dirty or genuinely
+unpushed worktrees are reported as skipped; cleanup never force-releases them.
+The owner check is best-effort and only used when `--dead-owner` is explicitly
+requested.
+
 ## `wt list [<repo>]` (alias: `wt ls`)
 
 List all worktrees and their status, optionally filtered to one repo. Includes

@@ -48,6 +48,14 @@ export interface CmdOpts {
   pathOnly?: boolean;
   skipSetup?: boolean;
   force?: boolean;
+  /** Minimum attached age considered by cleanup, in seconds. */
+  olderThanSeconds?: number;
+  /** Limit cleanup to worktrees whose recorded owner process is dead. */
+  deadOwner?: boolean;
+  /** Apply cleanup instead of previewing it. */
+  apply?: boolean;
+  /** Explicit dry-run marker (cleanup is already a dry-run by default). */
+  dryRun?: boolean;
   /** Raw JSON string from `wt up --meta`, parsed into sessionMeta. */
   meta?: string;
   // `wt config <repo>` setters (non-interactive / agent mode):
@@ -273,29 +281,9 @@ export async function cmdDown(
     );
   }
 
-  // 3. Safe to release: flip to needs-resetup and clear ownership.
-  const target = await withState((state): Worktree | null => {
-    const wt = findById(state, found.id);
-    if (!wt) return null;
-    wt.status = "needs-resetup";
-    wt.owner = null;
-    wt.attachedAt = null;
-    wt.workerPid = null;
-    wt.enteredAt = null;
-    wt.sessionInfo = null;
-    wt.sessionMeta = null;
-    return { ...wt };
-  });
+  const target = await releaseFoundWorktree(found);
 
   if (!target) return;
-
-  // Detach HEAD so the branch isn't held; cheap, safe to do in foreground.
-  detach(target);
-
-  // Top up the originating repo's pool (resolve slug -> source).
-  const config = loadConfig();
-  const source = sourceForSlug(config, target.repo);
-  if (source) triggerTopup(source);
 
   const note = head.branch
     ? ` (was on "${head.branch}"${opts.force && hasUnsavedWork(head) ? ", forced" : ""})`
@@ -311,6 +299,169 @@ export async function cmdDown(
     },
     `released ${target.id}${note} — returning to pool`,
   );
+}
+
+/** Mark an already-validated worktree released and kick off pool refill. */
+async function releaseFoundWorktree(found: Worktree): Promise<Worktree | null> {
+  const target = await withState((state): Worktree | null => {
+    const wt = findById(state, found.id);
+    if (!wt) return null;
+    wt.status = "needs-resetup";
+    wt.owner = null;
+    wt.attachedAt = null;
+    wt.workerPid = null;
+    wt.enteredAt = null;
+    wt.sessionInfo = null;
+    wt.sessionMeta = null;
+    return { ...wt };
+  });
+
+  if (!target) return null;
+
+  // Detach HEAD so the branch isn't held; cheap, safe to do in foreground.
+  detach(target);
+
+  // Top up the originating repo's pool (resolve slug -> source).
+  const config = loadConfig();
+  const source = sourceForSlug(config, target.repo);
+  if (source) triggerTopup(source);
+
+  return target;
+}
+
+// ---- cleanup ----
+
+type OwnerStatus = "alive" | "dead" | "unknown";
+
+interface CleanupResult {
+  id: string;
+  repo: string;
+  branch: string;
+  attachedAt: number;
+  age: string;
+  owner: OwnerStatus;
+  work: string;
+  action: "would-release" | "released" | "skipped";
+  reason: string | null;
+}
+
+/** Best-effort liveness check for the informational owner pid. */
+function ownerStatus(wt: Worktree): OwnerStatus {
+  const pid = wt.sessionInfo?.pid;
+  if (!pid || pid <= 1) return "unknown";
+  try {
+    process.kill(pid, 0);
+    return "alive";
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM" ? "alive" : "dead";
+  }
+}
+
+/** Preview or release old attached worktrees that pass the normal down guard. */
+export async function cmdCleanup(
+  token: string | undefined,
+  opts: CmdOpts,
+): Promise<void> {
+  if (opts.olderThanSeconds == null) {
+    throw new Error(`cleanup requires --older-than <age>, e.g. --older-than 3d`);
+  }
+  if (opts.apply && opts.dryRun) {
+    throw new Error(`cleanup cannot combine --apply and --dry-run`);
+  }
+
+  const config = loadConfig();
+  const state = readState();
+  const filterSlug = token ? resolveRepo(config, token).slug : null;
+  const labels = new Map(
+    Object.values(config.repos).map((repo) => [repoSlug(repo.source), repoLabel(repo)]),
+  );
+  const cutoff = now() - opts.olderThanSeconds;
+  const candidates = state.worktrees
+    .filter(
+      (wt) =>
+        wt.status === "attached" &&
+        wt.attachedAt != null &&
+        wt.attachedAt <= cutoff &&
+        (!filterSlug || wt.repo === filterSlug),
+    )
+    .sort((a, b) => (a.attachedAt ?? 0) - (b.attachedAt ?? 0));
+
+  const results: CleanupResult[] = [];
+  for (const candidate of candidates) {
+    const owner = ownerStatus(candidate);
+    if (opts.deadOwner && owner !== "dead") continue;
+
+    let head = headInfo(candidate.path);
+    let work = workLabel(head);
+    let reason = hasUnsavedWork(head) ? work : null;
+    let action: CleanupResult["action"] = reason ? "skipped" : "would-release";
+
+    if (opts.apply && !reason) {
+      // Re-read immediately before mutation in case the checkout changed while
+      // the cleanup scan was running.
+      head = headInfo(candidate.path);
+      work = workLabel(head);
+      reason = hasUnsavedWork(head) ? work : null;
+      if (reason) {
+        action = "skipped";
+      } else {
+        const released = await releaseFoundWorktree(candidate);
+        action = released ? "released" : "skipped";
+        if (!released) reason = "no longer exists";
+      }
+    }
+
+    results.push({
+      id: candidate.id,
+      repo: labels.get(candidate.repo) ?? candidate.repo,
+      branch: head.branch ?? "detached",
+      attachedAt: candidate.attachedAt as number,
+      age: humanAge(candidate.attachedAt as number),
+      owner,
+      work,
+      action,
+      reason,
+    });
+  }
+
+  if (opts.json) {
+    out(
+      true,
+      {
+        dryRun: !opts.apply,
+        olderThanSeconds: opts.olderThanSeconds,
+        deadOwnerOnly: Boolean(opts.deadOwner),
+        worktrees: results,
+      },
+      "",
+    );
+    return;
+  }
+
+  if (results.length === 0) {
+    process.stdout.write("no matching attached worktrees\n");
+    return;
+  }
+
+  printTable(
+    ["ID", "REPO", "BRANCH", "AGE", "OWNER", "WORK", "ACTION"],
+    results.map((result) => [
+      result.id,
+      result.repo,
+      result.branch,
+      result.age,
+      result.owner,
+      result.work,
+      result.action === "skipped" && result.reason
+        ? `skipped: ${result.reason}`
+        : result.action === "would-release"
+          ? "would release"
+          : "released",
+    ]),
+  );
+  if (!opts.apply) {
+    process.stdout.write("\ndry run — pass --apply to release eligible worktrees\n");
+  }
 }
 
 // ---- list ----

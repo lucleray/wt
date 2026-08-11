@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import {
   cmdUp,
   cmdDown,
+  cmdCleanup,
   cmdList,
   cmdPrewarm,
   cmdConfig,
@@ -37,6 +38,7 @@ Usage:
   wt up <repo>            Get a ready worktree (instant from pool)
   wt down [<id>]          Release a worktree back to the pool (refuses if it
                           has unsaved work; --force to override)
+  wt cleanup [<repo>]     Find old attached worktrees safe to release (dry-run)
   wt list [<repo>]        List all worktrees and their status (alias: ls)
   wt config               Print and validate config
   wt config <repo>        Add / edit a repo (interactive, or via flags below)
@@ -53,6 +55,11 @@ Options:
                 tag a worktree with e.g. a session id so they can find it
                 later: --meta '{"sessionId":"abc123","task":"luc/feature"}'
   --force       (down) Release even if the worktree has unsaved work
+  --older-than <age>
+                (cleanup) Required minimum attached age, e.g. 12h, 3d, 2w
+  --dead-owner  (cleanup) Only include worktrees whose recorded pid is dead
+  --apply       (cleanup) Release eligible worktrees; default is a dry-run
+  --dry-run     (cleanup) Explicitly preview without releasing (the default)
 
 config <repo> flags (non-interactive — for agents/scripts):
   --name <alias>      Friendly alias for the repo (optional)
@@ -98,6 +105,10 @@ async function main(): Promise<void> {
       "skip-setup": { type: "boolean" },
       meta: { type: "string" },
       force: { type: "boolean" },
+      "older-than": { type: "string" },
+      "dead-owner": { type: "boolean" },
+      apply: { type: "boolean" },
+      "dry-run": { type: "boolean" },
       source: { type: "string" },
       name: { type: "string" },
       base: { type: "string" },
@@ -118,6 +129,10 @@ async function main(): Promise<void> {
     skipSetup: values["skip-setup"] as boolean | undefined,
     meta: values.meta as string | undefined,
     force: values.force as boolean | undefined,
+    olderThanSeconds: durationOpt(values["older-than"]),
+    deadOwner: values["dead-owner"] as boolean | undefined,
+    apply: values.apply as boolean | undefined,
+    dryRun: values["dry-run"] as boolean | undefined,
     source: values.source as string | undefined,
     name: values.name as string | undefined,
     baseBranch: values.base as string | undefined,
@@ -138,6 +153,9 @@ async function main(): Promise<void> {
       break;
     case "down":
       await cmdDown(positionals[0], opts);
+      break;
+    case "cleanup":
+      await cmdCleanup(positionals[0], opts);
       break;
     case "list":
     case "ls":
@@ -167,6 +185,24 @@ function intOpt(val: unknown): number | undefined {
   if (typeof val !== "string") return undefined;
   const n = parseInt(val, 10);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** Parse compact durations such as 30m, 12h, 3d, or 2w into seconds. */
+function durationOpt(val: unknown): number | undefined {
+  if (typeof val !== "string") return undefined;
+  const match = val.trim().match(/^(\d+(?:\.\d+)?)([smhdw])$/i);
+  if (!match) {
+    throw new Error(`invalid duration "${val}"; use e.g. 30m, 12h, 3d, or 2w`);
+  }
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multiplier =
+    unit === "s" ? 1 :
+    unit === "m" ? 60 :
+    unit === "h" ? 60 * 60 :
+    unit === "d" ? 24 * 60 * 60 :
+    7 * 24 * 60 * 60;
+  return Math.floor(amount * multiplier);
 }
 
 function requireArg(val: string | undefined, usage: string): asserts val is string {

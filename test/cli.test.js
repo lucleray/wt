@@ -259,6 +259,95 @@ test("down accepts a clean branch whose HEAD is on a non-upstream remote ref", (
   assert.doesNotMatch(down.stdout, /forced/);
 });
 
+test("cleanup previews safe worktrees and only applies with --apply", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+
+  const preview = wt(["cleanup", repo, "--older-than", "0s", "--json"]);
+  assert.equal(preview.code, 0, `cleanup preview failed: ${preview.stderr}`);
+  const previewed = JSON.parse(preview.stdout);
+  assert.equal(previewed.dryRun, true);
+  const row = previewed.worktrees.find((x) => x.id === w.id);
+  assert.ok(row, "expected cleanup to include the attached worktree");
+  assert.equal(row.work, "clean");
+  assert.equal(row.action, "would-release");
+  assert.ok(
+    listJson().some((x) => x.id === w.id && x.status === "attached"),
+    "dry-run must leave the worktree attached",
+  );
+
+  const deadOnly = wt([
+    "cleanup",
+    repo,
+    "--older-than", "0s",
+    "--dead-owner",
+    "--json",
+  ]);
+  assert.equal(deadOnly.code, 0, `dead-owner preview failed: ${deadOnly.stderr}`);
+  assert.ok(
+    !JSON.parse(deadOnly.stdout).worktrees.some((x) => x.id === w.id),
+    "the live test process should be excluded by --dead-owner",
+  );
+
+  const apply = wt([
+    "cleanup",
+    repo,
+    "--older-than", "0s",
+    "--apply",
+    "--json",
+  ]);
+  assert.equal(apply.code, 0, `cleanup apply failed: ${apply.stderr}`);
+  const applied = JSON.parse(apply.stdout).worktrees.find((x) => x.id === w.id);
+  assert.equal(applied.action, "released");
+});
+
+test("cleanup apply skips worktrees with unsaved work", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+  git(w.path, "switch", "-c", "feature/cleanup-dirty", "-q");
+  writeFileSync(join(w.path, "dirty.txt"), "dirty\n");
+
+  const apply = wt([
+    "cleanup",
+    repo,
+    "--older-than", "0s",
+    "--apply",
+    "--json",
+  ]);
+  assert.equal(apply.code, 0, `cleanup apply failed: ${apply.stderr}`);
+  const row = JSON.parse(apply.stdout).worktrees.find((x) => x.id === w.id);
+  assert.equal(row.action, "skipped");
+  assert.match(row.reason, /uncommitted/);
+  assert.ok(
+    listJson().some((x) => x.id === w.id && x.status === "attached"),
+    "unsafe worktree must remain attached",
+  );
+
+  const down = wt(["down", w.id, "--force"]);
+  assert.equal(down.code, 0, `cleanup teardown failed: ${down.stderr}`);
+});
+
+test("cleanup requires a valid age and rejects conflicting modes", () => {
+  const missing = wt(["cleanup"]);
+  assert.equal(missing.code, 1);
+  assert.match(missing.stderr, /requires --older-than/);
+
+  const invalid = wt(["cleanup", "--older-than", "yesterday"]);
+  assert.equal(invalid.code, 1);
+  assert.match(invalid.stderr, /invalid duration/);
+
+  const conflicting = wt([
+    "cleanup",
+    "--older-than", "3d",
+    "--apply",
+    "--dry-run",
+  ]);
+  assert.equal(conflicting.code, 1);
+  assert.match(conflicting.stderr, /cannot combine/);
+});
+
 test("down with an unknown id errors clearly", () => {
   const r = wt(["down", "nope"]);
   assert.equal(r.code, 1);

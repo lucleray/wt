@@ -22,6 +22,8 @@ prefer passing a path; you don't need to pre-configure anything.
   (e.g. from `~`) → use `wt up <path>` to get a worktree, then `cd` into it.
 - The user is done with a worktree / the PR is merged → use `wt down`.
 - You want to see what's available → `wt list` (alias `wt ls`).
+- You want to audit old attached worktrees → use `wt cleanup --older-than <age>`
+  first, then add `--apply` only after reviewing the dry-run.
 
 Do **not** use `wt` if the user is already working inside an existing checkout
 and just wants you to keep editing there.
@@ -55,6 +57,7 @@ wt up app                            # by alias (if configured)
 | -------------------------- | ------------------------------------------------------------ |
 | `wt up <repo>`             | Get a ready worktree. `--path-only` prints just the path. `<repo>` = path or alias. Auto-sets-up an unconfigured path. |
 | `wt down [<id>]`           | Release a worktree (defaults to the one for the cwd). Refuses if it has unsaved work; `--force` overrides. |
+| `wt cleanup [<repo>]`      | Dry-run old attached worktrees; `--older-than` is required and `--apply` releases safe matches. |
 | `wt list [<repo>]`         | List all worktrees + status (alias `wt ls`).                 |
 | `wt config`                | Show + validate configured repos.                            |
 | `wt config <repo> [flags]` | Add / edit a repo (path or alias; see below).                |
@@ -94,6 +97,14 @@ pushed to a remote. This guard is intentional:
   `--json` adds `liveBranch`, `liveCommit`, `ahead`, and `behind`. (Listing is
   cheap and does **not** run `git status`; `wt down` does the full unsaved-work
   check when it actually matters.)
+
+For batch cleanup, start with a dry-run and optionally filter to dead recorded
+owners. Cleanup never force-releases dirty or genuinely unpushed worktrees:
+
+```bash
+wt cleanup --older-than 3d --dead-owner
+wt cleanup --older-than 3d --dead-owner --apply
+```
 
 ## Tracking which worktree is yours (--meta)
 
