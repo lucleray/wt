@@ -111,7 +111,8 @@ test("list reports the bootstrapped worktree as clean + detached", () => {
 });
 
 test("list surfaces a created branch from the live HEAD", () => {
-  const w = listJson().find((x) => !x.id.startsWith("pending-"));
+  const w = listJson().find((x) => x.status === "attached");
+  assert.ok(w, "expected an attached worktree");
   git(w.path, "switch", "-c", "feature/x", "-q");
   writeFileSync(join(w.path, "new.txt"), "hi\n");
 
