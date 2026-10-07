@@ -12,8 +12,10 @@ Override the path with `WT_CONFIG`.
 `<repo>` is a path (e.g. `~/code/acme-app`) or an existing alias.
 
 Interactive (humans): run it in a terminal and answer the prompts. It
-auto-suggests a setup command from the repo's files (e.g. `pnpm install` if it
-finds `pnpm-lock.yaml`) and lets you set an optional alias name.
+auto-suggests a setup command from the repo's files (e.g. `pnpm install
+--frozen-lockfile` if it finds `pnpm-lock.yaml`) and lets you set an optional
+alias name. Suggested installs never rewrite the lockfile, so warm worktrees
+stay clean.
 
 ```sh
 wt config ~/code/acme-app
@@ -75,7 +77,7 @@ nice-to-have alias.
 
       // Shell command run inside each worktree after checkout. Optional.
       // Runs with cwd = the worktree directory.
-      "setup": "pnpm install",
+      "setup": "pnpm install --frozen-lockfile",
 
       // Warm floor: always keep at least this many `ready` worktrees. Default 1.
       "minWarmPool": 1,
@@ -177,7 +179,7 @@ wt config --json   # machine-readable
     "~/code/website": {
       "name": "website",
       "baseBranch": "main",
-      "setup": "pnpm install",
+      "setup": "pnpm install --frozen-lockfile",
       "minWarmPool": 1,
       "maxWarmPool": 5,
       "maxTotalPool": 25
@@ -191,9 +193,9 @@ wt config --json   # machine-readable
 ```jsonc
 {
   "repos": {
-    "~/code/website":    { "name": "website", "setup": "pnpm install",   "maxWarmPool": 5, "maxTotalPool": 25 },
-    "~/code/api-server": { "name": "api",     "setup": "pnpm install",   "maxWarmPool": 3, "maxTotalPool": 15 },
-    "~/code/infra":      { "name": "infra",   "setup": "terraform init", "maxWarmPool": 1, "maxTotalPool": 5  }
+    "~/code/website":    { "name": "website", "setup": "pnpm install --frozen-lockfile", "maxWarmPool": 5, "maxTotalPool": 25 },
+    "~/code/api-server": { "name": "api",     "setup": "pnpm install --frozen-lockfile", "maxWarmPool": 3, "maxTotalPool": 15 },
+    "~/code/infra":      { "name": "infra",   "setup": "terraform init",                 "maxWarmPool": 1, "maxTotalPool": 5  }
   }
 }
 ```

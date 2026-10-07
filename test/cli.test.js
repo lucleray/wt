@@ -4,7 +4,7 @@
 // Run with: pnpm test  (builds first, then `node --test`)
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   rmSync,
@@ -495,4 +495,42 @@ test("bounds are clamped so minWarm <= maxWarm <= maxTotal", () => {
   assert.equal(c.minWarmPool, 8);
   assert.equal(c.maxWarmPool, 8, "maxWarm raised to >= minWarm");
   assert.equal(c.maxTotalPool, 8, "maxTotal raised to >= maxWarm");
+});
+
+test("suggested setup installs without rewriting the lockfile", async () => {
+  const { suggestSetup } = await import(join(here, "..", "dist", "suggest.js"));
+  const cases = [
+    [["pnpm-lock.yaml"], "pnpm install --frozen-lockfile"],
+    [["pnpm-workspace.yaml"], "pnpm install"],
+    [["yarn.lock"], "yarn install --frozen-lockfile"],
+    [["yarn.lock", ".yarnrc.yml"], "yarn install --immutable"],
+    [["bun.lock"], "bun install --frozen-lockfile"],
+    [["package-lock.json", "package.json"], "npm ci"],
+    [["package.json"], "npm install"],
+  ];
+  for (const [files, expected] of cases) {
+    const dir = mkdtempSync(join(root, "suggest-"));
+    for (const f of files) writeFileSync(join(dir, f), "");
+    assert.equal(suggestSetup(dir).setup, expected, `files: ${files.join(", ")}`);
+  }
+});
+
+test("up warns when setup modifies tracked files", () => {
+  const dirtyRepo = join(root, "dirty-repo");
+  execFileSync("git", ["init", "-q", "-b", "main", dirtyRepo]);
+  git(dirtyRepo, "config", "user.email", "test@example.com");
+  git(dirtyRepo, "config", "user.name", "Test");
+  writeFileSync(join(dirtyRepo, "lock.txt"), "v1\n");
+  git(dirtyRepo, "add", "-A");
+  git(dirtyRepo, "commit", "-qm", "init");
+  const cfg = wt(["config", dirtyRepo, "--setup", "echo v2 > lock.txt", "--max-warm", "1", "--max-total", "1", "--yes"]);
+  assert.equal(cfg.code, 0, `config failed: ${cfg.stderr}`);
+
+  const r = spawnSync("node", [CLI, "up", dirtyRepo, "--path-only"], {
+    env: { ...process.env, WT_CONFIG_DIR: cfgDir, NO_COLOR: "1" },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `up failed: ${r.stderr}`);
+  assert.match(r.stderr, /setup "echo v2 > lock\.txt" modified tracked files/);
+  assert.match(r.stderr, /lock\.txt/);
 });

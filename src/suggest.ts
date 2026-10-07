@@ -16,17 +16,25 @@ export function suggestSetup(repoPath: string): Suggestion {
   const has = (f: string) => existsSync(join(repoPath, f));
 
   // JavaScript / TypeScript package managers (lockfile decides the manager).
-  if (has("pnpm-lock.yaml") || has("pnpm-workspace.yaml")) {
-    return { setup: "pnpm install", reason: "pnpm-lock.yaml" };
+  // With a lockfile, install without rewriting it: a plain install can
+  // reformat the lockfile, leaving every warm worktree dirty.
+  if (has("pnpm-lock.yaml")) {
+    return { setup: "pnpm install --frozen-lockfile", reason: "pnpm-lock.yaml" };
+  }
+  if (has("pnpm-workspace.yaml")) {
+    return { setup: "pnpm install", reason: "pnpm-workspace.yaml" };
   }
   if (has("yarn.lock")) {
-    return { setup: "yarn install", reason: "yarn.lock" };
+    // Yarn Berry (has .yarnrc.yml) renamed --frozen-lockfile to --immutable.
+    return has(".yarnrc.yml")
+      ? { setup: "yarn install --immutable", reason: "yarn.lock" }
+      : { setup: "yarn install --frozen-lockfile", reason: "yarn.lock" };
   }
   if (has("bun.lockb") || has("bun.lock")) {
-    return { setup: "bun install", reason: "bun.lock" };
+    return { setup: "bun install --frozen-lockfile", reason: "bun.lock" };
   }
   if (has("package-lock.json")) {
-    return { setup: "npm install", reason: "package-lock.json" };
+    return { setup: "npm ci", reason: "package-lock.json" };
   }
   if (has("package.json")) {
     return { setup: "npm install", reason: "package.json" };

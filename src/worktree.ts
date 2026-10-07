@@ -129,6 +129,27 @@ function runSetup(repo: RepoConfig, cwd: string): void {
       `setup script failed in ${cwd}:\n$ ${repo.setup}\n${res.stderr.trim()}`,
     );
   }
+  warnIfSetupDirtied(repo.setup, cwd);
+}
+
+/**
+ * Warn when setup modified tracked files (e.g. `pnpm install` rewriting the
+ * lockfile). A dirty warm worktree is reported as unsaved work, so `wt down`
+ * refuses to release it later.
+ */
+function warnIfSetupDirtied(setup: string, cwd: string): void {
+  const res = run("git", ["-C", cwd, "status", "--porcelain", "--untracked-files=no"]);
+  if (res.code !== 0) return;
+  const files = res.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3));
+  if (files.length === 0) return;
+  process.stderr.write(
+    `warning: setup "${setup}" modified tracked files in ${cwd}: ${files.join(", ")}\n` +
+      `  worktrees will look like they have unsaved work. Use a setup command that\n` +
+      `  leaves them untouched, e.g. "pnpm install --frozen-lockfile".\n`,
+  );
 }
 
 /** Detach a worktree's HEAD (used on release). */

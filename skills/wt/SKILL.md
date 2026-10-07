@@ -33,7 +33,7 @@ and just wants you to keep editing there.
 ```bash
 # 1. get a ready worktree by PATH (instant from pool; cold-builds if empty).
 #    If the path isn't configured yet, wt auto-registers it (no TTY = agent),
-#    detecting a setup command like `pnpm install`.
+#    detecting a setup command like `pnpm install --frozen-lockfile`.
 path="$(wt up ~/code/acme-app --path-only)"
 
 # 2. work in it
@@ -140,7 +140,7 @@ To set an alias or tune pool size / setup non-interactively:
 ```bash
 wt config ~/code/acme-app --name app --yes --json
 # pool knobs: --min-warm (floor), --max-warm (warm cap), --max-total (hard cap)
-wt config ~/code/acme-app --setup 'pnpm install' --min-warm 1 --max-warm 5 --max-total 25 --yes
+wt config ~/code/acme-app --setup 'pnpm install --frozen-lockfile' --min-warm 1 --max-warm 5 --max-total 25 --yes
 wt config ~/code/notes --no-setup --yes
 ```
 
