@@ -117,7 +117,8 @@ in-flight builds (shown as `setting up`). Status values:
 The **BRANCH** column shows the live checked-out branch (or `<base>~ (commit)`
 when detached), read straight from the worktree via cheap git plumbing — listing
 does **not** run `git status` (that scan is what `wt down` uses to guard against
-discarding unsaved work). `--json` adds `liveBranch`, `liveCommit`, `ahead`,
+discarding unsaved work). `wt list` must stay instant, so expensive checks never
+run here (see [Speed is a feature](design.md#speed-is-a-feature)). `--json` adds `liveBranch`, `liveCommit`, `ahead`,
 `behind`, and the attach metadata `sessionInfo` / `sessionMeta` (see `wt up
 --meta`).
 

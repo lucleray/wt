@@ -22,6 +22,44 @@ A "worktree" here is a real `git worktree` of a configured **source** repo,
 checked out **detached** at the repo's base branch, with the repo's **setup
 script** already run (e.g. `pnpm install`).
 
+## Speed is a feature
+
+`wt` exists to be fast. A slow `wt` defeats its own purpose, so every change
+must keep the interactive commands fast, even on large monorepos with tens of
+thousands of commits and thousands of refs.
+
+Targets for the interactive commands, with a warm pool:
+
+| Command      | Target            | How                                                        |
+| ------------ | ----------------- | ---------------------------------------------------------- |
+| `wt up`      | instant           | Pop a `ready` worktree from state; heavy work is pre-paid. |
+| `wt ls`      | instant           | Render from state; no `git status`, no history walks.      |
+| `wt down`    | well under 1s     | Safety check, then mark `needs-resetup`; reset is deferred. |
+
+Rules that keep it that way:
+
+- **State first, git last.** Render anything with a known state straight from
+  `state.json`. Only call git when the answer can't be known from state.
+- **No `git status` in `wt ls`.** Its working-tree scan is the expensive part
+  of listing. `ls` reads live branch identity with cheap plumbing
+  (`symbolic-ref`, `rev-parse`), only for worktrees that need it.
+- **Fan out.** When several worktrees need a git call, run them concurrently,
+  never one after another.
+- **Expensive work goes to the background.** Checkout, setup scripts, resets
+  and destruction belong in the background top-up, never on the path of an
+  interactive command.
+- **Safety checks only where they protect work.** Checks that walk history or
+  scan the working tree (unsaved-work detection, reachability of a detached
+  HEAD) run in `wt down` and `wt cleanup`, not in `wt ls`. Give them a
+  zero-cost fast path for the common case (e.g. HEAD still equals
+  `baseCommit`) so only worktrees that actually changed pay for the check.
+- **Measure on a big repo.** Before adding a git call to a command, time it on
+  a large monorepo, not just a toy repo. A cost that's per worktree multiplies
+  with the pool size.
+
+If a feature can't meet these targets, make it opt-in or move it to a
+command that isn't on the hot path.
+
 ## Why worktrees (not clones)
 
 Worktrees share the source repo's `.git` object store, so:
