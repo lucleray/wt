@@ -75,10 +75,25 @@ reuse. If the warm pool is already full (`maxWarmPool`) or the pool is over its
 total cap (`maxTotalPool`), the worktree is destroyed instead.
 
 **Safety:** recycling resets the worktree to its base branch, so `down` refuses
-if the worktree has **unsaved work** — uncommitted changes, or commits on a
-branch that aren't pushed to a remote. Commit + push (or stash) first, or pass
+if the worktree has **unsaved work** — uncommitted changes, commits on a
+branch that aren't pushed to a remote, or commits on a detached HEAD that no
+branch, remote ref, or tag contains. Commit + push (or stash) first, or pass
 `--force` to release anyway. (The branch ref itself survives in the source repo
 even after a forced release, so committed work is still recoverable.)
+
+Detached commits have no branch ref to survive a reset, so a forced release
+pins them first under `refs/wt/rescue/<id>-<timestamp>` (reported in the
+output and as `rescueRef` in `--json`). List and recover them from the source
+repo:
+
+```sh
+git for-each-ref refs/wt/rescue
+git switch -c recovered refs/wt/rescue/ab12-1760000000
+```
+
+The detached-HEAD check is free in the common case: if HEAD still equals the
+commit the worktree was warmed at, no history walk runs. Only a HEAD that moved
+pays for one `git rev-list`.
 
 The pushed-commit check is not limited to the branch's configured upstream. If
 `HEAD` is reachable from any local remote-tracking ref, `wt down` treats it as

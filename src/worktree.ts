@@ -196,6 +196,11 @@ export interface HeadInfo {
   behind: number;
   /** Whether HEAD is reachable from any local remote-tracking ref. */
   remoteContainsHead: boolean;
+  /**
+   * Commits on a detached HEAD that no branch, remote ref, or tag contains.
+   * Recycling would orphan them (reflog-only recovery). Always 0 on a branch.
+   */
+  orphanCommits: number;
 }
 
 export const EMPTY_HEAD: HeadInfo = {
@@ -206,6 +211,7 @@ export const EMPTY_HEAD: HeadInfo = {
   ahead: 0,
   behind: 0,
   remoteContainsHead: false,
+  orphanCommits: 0,
 };
 
 /**
@@ -215,7 +221,7 @@ export const EMPTY_HEAD: HeadInfo = {
  * checked-out branch (if any), the short commit, whether the tree is dirty, and
  * upstream ahead/behind counts. Uses a single `git status` so it stays cheap.
  */
-export function headInfo(path: string): HeadInfo {
+export function headInfo(path: string, baseCommit?: string | null): HeadInfo {
   if (!path || !existsSync(path)) return { ...EMPTY_HEAD };
 
   // One call gives branch, upstream, ahead/behind, and dirty state.
@@ -246,7 +252,42 @@ export function headInfo(path: string): HeadInfo {
     head.remoteContainsHead =
       remote.code === 0 && remote.stdout.trim().length > 0;
   }
+  // A detached HEAD still on the commit it was warmed at holds nothing new, so
+  // skip the history walk entirely (the common case stays free). Only a HEAD
+  // that moved pays for the reachability check.
+  if (!head.branch && head.commit && !baseCommit?.startsWith(head.commit)) {
+    head.orphanCommits = orphanCommitCount(path);
+  }
   return head;
+}
+
+/** Commits reachable from HEAD but from no branch, remote ref, or tag. */
+function orphanCommitCount(path: string): number {
+  const res = run("git", [
+    "-C",
+    path,
+    "rev-list",
+    "--count",
+    "HEAD",
+    "--not",
+    "--branches",
+    "--remotes",
+    "--tags",
+  ]);
+  if (res.code !== 0) return 0;
+  const n = parseInt(res.stdout.trim(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Pin a detached HEAD under `refs/wt/rescue/` so its commits survive a forced
+ * release (recycling resets the worktree and git gc would prune them).
+ * Returns the ref name, or null if it couldn't be written.
+ */
+export function writeRescueRef(path: string, id: string): string | null {
+  const ref = `refs/wt/rescue/${id}-${Math.floor(Date.now() / 1000)}`;
+  const res = run("git", ["-C", path, "update-ref", ref, "HEAD"]);
+  return res.code === 0 ? ref : null;
 }
 
 /** A worktree's branch identity, without the cost of a working-tree scan. */
@@ -343,5 +384,6 @@ function parsePorcelainV2(stdout: string): HeadInfo {
     ahead,
     behind,
     remoteContainsHead: false,
+    orphanCommits: 0,
   };
 }

@@ -274,6 +274,53 @@ test("down accepts a clean branch whose HEAD is on a non-upstream remote ref", (
   assert.doesNotMatch(down.stdout, /forced/);
 });
 
+test("down releases an untouched detached worktree", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+
+  const down = wt(["down", w.id]);
+  assert.equal(down.code, 0, `down failed: ${down.stderr}`);
+});
+
+test("down refuses commits on a detached HEAD that no ref contains", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+  writeFileSync(join(w.path, "orphan.txt"), "orphan\n");
+  git(w.path, "add", "-A");
+  git(w.path, "commit", "-qm", "orphan commit");
+
+  const r = wt(["down", w.id]);
+  assert.equal(r.code, 1, "down should refuse orphan detached commits");
+  assert.match(r.stderr, /detached HEAD \(1 commit no branch contains\)/);
+  assert.match(r.stderr, /git switch -c/);
+  const still = listJson().find((x) => x.id === w.id);
+  assert.equal(still.status, "attached");
+
+  // Once a remote ref contains the commit, releasing is safe again.
+  git(w.path, "push", "-q", "origin", "HEAD:refs/heads/feature/was-detached");
+  const down = wt(["down", w.id]);
+  assert.equal(down.code, 0, `down failed after push: ${down.stderr}`);
+});
+
+test("down --force keeps orphan detached commits under a rescue ref", () => {
+  const up = wt(["up", repo, "--json"]);
+  assert.equal(up.code, 0, `up failed: ${up.stderr}`);
+  const w = JSON.parse(up.stdout);
+  writeFileSync(join(w.path, "rescue.txt"), "rescue\n");
+  git(w.path, "add", "-A");
+  git(w.path, "commit", "-qm", "rescue me");
+  const sha = git(w.path, "rev-parse", "HEAD");
+
+  const r = wt(["down", w.id, "--force", "--json"]);
+  assert.equal(r.code, 0, `forced down failed: ${r.stderr}`);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.forced, true);
+  assert.match(out.rescueRef, new RegExp(`^refs/wt/rescue/${w.id}-\\d+$`));
+  assert.equal(git(repo, "rev-parse", out.rescueRef), sha);
+});
+
 test("cleanup previews safe worktrees and only applies with --apply", () => {
   const up = wt(["up", repo, "--json"]);
   assert.equal(up.code, 0, `up failed: ${up.stderr}`);

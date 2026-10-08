@@ -26,6 +26,7 @@ import {
   detach,
   worktreeExistsOnDisk,
   headInfo,
+  writeRescueRef,
   branchInfoAsync,
   type HeadInfo,
   type BranchInfo,
@@ -270,24 +271,39 @@ export async function cmdDown(
 
   // 2. Recycling resets the worktree to base, destroying anything not saved.
   //    Read the live HEAD and refuse if there's unsaved work (unless --force).
-  const head = headInfo(found.path);
+  const head = headInfo(found.path, found.baseCommit);
   if (!opts.force && hasUnsavedWork(head)) {
     const what = workLabel(head);
-    const where = head.branch ? ` on branch "${head.branch}"` : "";
+    const where = head.branch
+      ? ` on branch "${head.branch}"`
+      : head.orphanCommits > 0
+        ? ` on a detached HEAD (${head.orphanCommits} commit${head.orphanCommits === 1 ? "" : "s"} no branch contains)`
+        : "";
+    const fix = head.orphanCommits > 0
+      ? `Save them on a branch first: git switch -c <branch> && git push -u origin <branch>\n` +
+        `Then retry — or pass --force to release anyway (a rescue ref is kept).`
+      : `Commit and push (or stash) first, then retry — or pass --force to release anyway.`;
     throw new Error(
       `refusing to release ${found.id}: it has ${what} work${where}.\n` +
         `Recycling resets the worktree to its base branch and would discard it.\n` +
-        `Commit and push (or stash) first, then retry — or pass --force to release anyway.`,
+        fix,
     );
   }
+
+  // Forcing past orphan commits: pin them first so they stay recoverable.
+  const rescueRef =
+    head.orphanCommits > 0 ? writeRescueRef(found.path, found.id) : null;
 
   const target = await releaseFoundWorktree(found);
 
   if (!target) return;
 
+  const forced = opts.force && hasUnsavedWork(head);
   const note = head.branch
-    ? ` (was on "${head.branch}"${opts.force && hasUnsavedWork(head) ? ", forced" : ""})`
-    : "";
+    ? ` (was on "${head.branch}"${forced ? ", forced" : ""})`
+    : rescueRef
+      ? ` (forced, detached commits kept at ${rescueRef})`
+      : "";
   out(
     opts.json,
     {
@@ -295,7 +311,8 @@ export async function cmdDown(
       repo: target.repo,
       released: true,
       wasBranch: head.branch,
-      forced: Boolean(opts.force && hasUnsavedWork(head)),
+      forced: Boolean(forced),
+      rescueRef,
     },
     `released ${target.id}${note} — returning to pool`,
   );
@@ -391,7 +408,7 @@ export async function cmdCleanup(
     const owner = ownerStatus(candidate);
     if (opts.deadOwner && owner !== "dead") continue;
 
-    let head = headInfo(candidate.path);
+    let head = headInfo(candidate.path, candidate.baseCommit);
     let work = workLabel(head);
     let reason = hasUnsavedWork(head) ? work : null;
     let action: CleanupResult["action"] = reason ? "skipped" : "would-release";
@@ -399,7 +416,7 @@ export async function cmdCleanup(
     if (opts.apply && !reason) {
       // Re-read immediately before mutation in case the checkout changed while
       // the cleanup scan was running.
-      head = headInfo(candidate.path);
+      head = headInfo(candidate.path, candidate.baseCommit);
       work = workLabel(head);
       reason = hasUnsavedWork(head) ? work : null;
       if (reason) {
@@ -513,6 +530,8 @@ function workLabel(head: HeadInfo): string {
     } else if (head.ahead > 0) {
       if (!head.remoteContainsHead) parts.push(`unpushed:${head.ahead}`);
     }
+  } else if (head.orphanCommits > 0) {
+    parts.push(`orphan:${head.orphanCommits}`);
   }
   return parts.length ? parts.join("+") : "clean";
 }
@@ -572,6 +591,8 @@ export function hasUnsavedWork(head: HeadInfo): boolean {
   ) {
     return head.commit != null;
   }
+  // Commits on a detached HEAD that no ref contains would be orphaned.
+  if (!head.branch && head.orphanCommits > 0) return true;
   return false;
 }
 

@@ -85,14 +85,18 @@ you need to parse results.
 ## Releasing safely
 
 `wt down` resets the worktree to its base branch, so it **refuses to release a
-worktree with unsaved work** — uncommitted changes, or commits on a branch not
-pushed to a remote. This guard is intentional:
+worktree with unsaved work** — uncommitted changes, commits on a branch not
+pushed to a remote, or commits on a detached HEAD that no ref contains. This
+guard is intentional:
 
 - If `wt down` reports unsaved work, **don't blindly `--force`**. Commit and
   push (or stash) the work first, then release.
+- If it reports commits on a detached HEAD, you forgot to create a branch.
+  Save them with `git switch -c <name> && git push -u origin <name>`.
 - Only use `wt down --force` when the user explicitly wants to discard the
-  worktree's state (the branch ref still survives in the source repo, so
-  committed work remains recoverable).
+  worktree's state (the branch ref still survives in the source repo, and
+  detached commits are pinned under `refs/wt/rescue/`, so committed work
+  remains recoverable).
 - `wt list` shows each worktree's id, repo, status, branch, age, and path. Age
   means time in the displayed status (attached age for `in use`, warm age for
   `ready`).
