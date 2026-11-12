@@ -173,8 +173,8 @@ wt config --json
 
 ```sh
 # agent is started in ~ with no repo
-path="$(wt up ~/code/acme-app --path-only)"
-cd "$path"
+dir="$(wt up ~/code/acme-app --path-only)"
+cd "$dir"
 git switch -c feature/my-feature
 # ...make changes, commit, push, open PR...
 wt down

@@ -34,10 +34,10 @@ and just wants you to keep editing there.
 # 1. get a ready worktree by PATH (instant from pool; cold-builds if empty).
 #    If the path isn't configured yet, wt auto-registers it (no TTY = agent),
 #    detecting a setup command like `pnpm install --frozen-lockfile`.
-path="$(wt up ~/code/acme-app --path-only)"
+dir="$(wt up ~/code/acme-app --path-only)"
 
 # 2. work in it
-cd "$path"
+cd "$dir"
 git switch -c feature/<name>        # create a branch for the work
 # ...edit, commit, push, open PR...
 
@@ -71,6 +71,8 @@ you need to parse results.
 - To start work: `cd "$(wt up <path> --path-only)"`, then create a branch.
   Passing a path Just Works even for a repo `wt` has never seen — it
   auto-registers it (no prompts when there's no TTY).
+- If you keep the path in a variable, don't name it `path`: zsh ties that name
+  to `PATH`, so every command after the assignment fails.
 - The path `wt up` returns is an absolute path under the configured
   `worktreeRoot` (defaults under `~/.wt`). Always `cd` there before doing repo
   work.
@@ -125,8 +127,8 @@ it, then locate it later by filtering `wt list --json` on `sessionMeta`:
 
 ```bash
 # take a worktree and stamp it with your session id + task
-path="$(wt up ~/code/acme-app --path-only --meta '{"sessionId":"<your-session-id>","task":"luc/feature"}')"
-cd "$path"
+dir="$(wt up ~/code/acme-app --path-only --meta '{"sessionId":"<your-session-id>","task":"luc/feature"}')"
+cd "$dir"
 
 # later: find the worktree this session started
 wt list --json | jq '.[] | select(.sessionMeta.sessionId == "<your-session-id>")'
