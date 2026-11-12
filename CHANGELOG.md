@@ -1,5 +1,11 @@
 # @lucleray/wt
 
+## 0.8.1
+
+### Patch Changes
+
+- 53e5fe2: The skill and usage docs no longer store the worktree path in a shell variable named `path`: in zsh that variable is tied to `PATH`, so every command after it failed with "command not found".
+
 ## 0.8.0
 
 ### Minor Changes
